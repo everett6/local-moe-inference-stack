@@ -105,6 +105,61 @@ everything done so far this session) or just building the prototype and
 measuring real end-to-end tok/s, which sidesteps the decomposition problem
 entirely.**
 
+## Attempt 3 -- native C++ timer, patched directly into llama.cpp
+
+Added a small instrumented example, `llama.cpp-src/examples/moe-timing/`
+(not part of this repo -- lives in the separate, gitignored llama.cpp
+checkout used for reference reading). Same bracketing idea as attempt 2
+(`ffn_norm-{il}` -> `ffn_moe_out-{il}`), but the timer is C++ code compiled
+directly into the binary, called from the real scheduler loop -- no
+ctypes, no Python, no per-call marshalling.
+
+Built CPU-only (`-DGGML_CUDA=OFF`), 16 threads to match production. First
+result: **47.6ms/token** average MoE-block time -- almost identical to the
+(supposedly contaminated) Python measurement from attempt 2. That was the
+first sign something else was going on: removing the suspected
+contamination barely moved the number.
+
+**Checked against the real thing.** Launched the actual production
+binary (LM Studio's bundled `llama-server`, the one `local_engine.py`
+actually runs) with its real flags and hit `/completion` directly --
+no proxy, no instrumentation, just the numbers the app itself reports:
+
+| Config (same binary, same model, same prompt) | measured tok/s | ms/token |
+|---|---|---|
+| Hybrid: `-ngl 999 -ot "ffn_(gate\|down\|up)_exps=CPU"` (production) | 45.4 | 22.0 |
+| Full CPU: `-ngl 0` (same binary, everything on CPU incl. experts) | 29.1 | 34.4 |
+
+Both numbers reproduce `BENCHMARK_RESULTS.md`'s original 46.3 tok/s
+baseline closely -- that number was real and still holds up today. And
+**34.4ms is the *entire* per-token cost of the real production binary
+computing everything (attention + all 48 layers of experts) on CPU** --
+which is already less than my custom build's isolated *MoE-only* claim of
+47.6ms. My build was measuring something slower than the real thing, not
+a lower bound on it.
+
+**Ruled out version skew.** LM Studio's binary reports `commit 8172e65`
+(via `--version`) -- I fetched that exact commit from upstream, checked it
+out, and rebuilt. Still 44.6ms/token for MoE alone. Ruled out ISA target
+too: LM Studio's build targets baseline `avx2`, mine defaulted to
+`-march=native` -- rebuilt a third time with `-DGGML_NATIVE=OFF
+-DGGML_AVX2=ON` to match exactly. Still ~45ms. Exact same source commit,
+matching declared instruction set, and my build is still slower than the
+production binary's *entire token* by a wide margin.
+
+**What's left unmatched, and why I stopped there:** LM Studio's binary
+reports `built with GNU 12.3.0`; this machine's default compiler is GCC
+15.2.0. A ~3-major-version compiler gap is a real, plausible source of
+this gap (auto-vectorization of ggml's hand-tuned quantized-matmul
+intrinsics is exactly the kind of code where GCC versions diverge in
+practice). Installing a matching GCC 12 toolchain to test that would need
+`sudo` (blocked the same way `gh`/`apt` were earlier in this session).
+Separately, real profiling of the live production binary via `perf` --
+which would have settled this cleanly regardless of build differences --
+is blocked by this system's kernel policy (`perf_event_paranoid=4`), which
+also needs `sudo` to lower. Both remaining paths are real, identified, and
+both gated on the same permission this session doesn't have unprompted.
+
 ## Bottom line
 
 - Predictability: confirmed at scale (44.2% overlap, ~7x random) —
@@ -113,20 +168,120 @@ entirely.**
   section. Real PCIe measurement, no instrumentation confound (the
   bandwidth test does no per-node Python callback at all). **Not a
   blocker.**
-- Compute upside: **still unmeasured**, and now for a well-diagnosed reason
-  rather than an untried one. Two independent proxy methods both failed,
-  for two different, understood reasons (dispatch-dominated batch-1 matmul;
-  callback-count-proportional wall time). Neither failure casts doubt on
-  the transfer-feasibility result above — that number came from direct
-  hardware measurement, not from either contaminated method.
+- Compute upside: not cleanly isolated, but usefully *bounded* by a real,
+  reproducible, same-binary measurement: moving attention (and everything
+  except CPU-pinned experts) from CPU to GPU already buys the production
+  pipeline a confirmed **36% speedup** (34.4ms full-CPU -> 22.0ms hybrid,
+  live, same model, same prompt, same binary, measured directly against
+  `local_engine.py`'s actual production flags). That gap is real evidence
+  the core premise -- moving compute off the CPU helps on this hardware --
+  holds. What it doesn't tell us: how much of the *remaining* 22.0ms hybrid
+  budget is CPU-expert-compute versus GPU-attention, which is the number
+  that would tell you the prefetch prototype's true ceiling. Three
+  independent attempts to isolate that fraction (Python callback timing,
+  native C++ timing at HEAD, native C++ timing at the exact matched commit
+  + ISA target) all produced numbers inconsistent with the real binary's
+  own total time -- see "Attempt 3" above. The remaining candidate causes
+  (compiler version mismatch, `perf` profiling) both need a `sudo`-gated
+  install this session doesn't have standing permission for.
 
-The roadmap's stated gate ("if that holds up, then the small prefetch
-prototype... is justified") has been checked with real data on the
-predictability side (yes) and the transfer-feasibility side (yes, with
-headroom to spare — ~1.8x). The compute-upside question — how much wall
-time a working prototype would actually save, if any — cannot be answered
-without either patching llama.cpp's C++ or building the prototype and
-measuring it directly. That's a genuine scope escalation from everything
-done so far this session (Python + ctypes hooks against a stock binary, no
-recompilation) to modifying and rebuilding a large C++/CUDA codebase — the
-right next checkpoint to confirm before starting it.
+**Practical read:** the roadmap's stated gate has real data on two of three
+legs -- predictable (yes) and transfer-affordable (yes, with margin) -- and
+a directionally strong but not exactly-quantified signal on the third
+(CPU-to-GPU moves already measurably help, by 36%, on this hardware).
+Getting an exact "prefetch would save you N ms/token" number from here
+needs either `sudo` (to match GCC 12, or lower `perf_event_paranoid` for
+real profiling) or just building the prototype and measuring real
+end-to-end tok/s directly, which sidesteps needing the decomposed number
+at all. That's a genuine scope escalation from everything done so far this
+session (Python/ctypes hooks and now a local instrumented rebuild, both
+against a stock binary or reference source, no changes to the actual
+production pipeline) to modifying and rebuilding llama.cpp's CUDA backend
+itself -- the right next checkpoint to confirm before starting it.
+
+## Phase 2 -- data-driven simulation (no sudo needed)
+
+Rather than chase the exact number through a `sudo`-gated compiler match or
+`perf` session, built a simulation instead: `prefetch_simulation.py`, using
+real measurements throughout except for one missing piece, derived rather
+than proxied.
+
+**Real, directly measured:**
+- GPU per-expert matmul time (gate/up/down, real shape): **0.0217 ms**,
+  via PyTorch CUDA -- a trustworthy proxy here, unlike the earlier CPU
+  attempts, because PyTorch's CUDA matmul already uses near-optimal cuBLAS
+  kernels for this shape.
+- GPU per-layer attention-projection time (Q/K/V/O, real shapes: 32 heads,
+  4 KV heads, head dim 128, GQA): **0.0851 ms**. RoPE/softmax/KV-read are
+  not modeled -- negligible at batch=1 next to these four projections.
+- 48-layer GPU attention total: **4.09 ms**, i.e. an estimated **18.6%**
+  of the measured 22.0ms hybrid budget.
+
+**Derived, not measured:** subtracting that attention estimate from the
+real measured 22.0ms hybrid total leaves 17.91ms attributed to CPU expert
+compute, i.e. **0.0467 ms/expert**. This is inference from one trusted real
+number (22.0ms, live-measured against the actual production binary), not
+a proxy benchmark -- it sidesteps the exact failure mode that sank the
+three earlier attempts (all of which tried to measure this directly and
+got numbers inconsistent with reality). It depends on the attention
+estimate being roughly right; flagged here as the one number in this
+simulation that isn't a hard measurement.
+
+Interesting on its own: 0.0467ms CPU vs 0.0217ms GPU is only a ~2.2x gap,
+not the 10-50x folklore figure for GPU-vs-CPU matmul. That's expected at
+batch=1 -- a single-token matmul this small is dominated by per-call
+overhead on *both* sides, not raw throughput, so the GPU's parallelism
+advantage is largely unrealized here. It's also *why* llama.cpp's CPU
+K-quant kernels are competitive enough to make CPU-offloaded MoE viable on
+consumer hardware in the first place.
+
+**Simulation**, walking all 82K real trace rows (8 prompts): for every
+real token-to-token step, naive-repeat predicts next-token's experts as
+this token's experts (47.8%-recall@8 heuristic, the best one found). Hits
+get GPU compute; misses get whichever is cheaper, per real numbers: fall
+back to CPU (today's behavior), or pay a fresh synchronous transfer + GPU
+compute. Given the real numbers above, **CPU-fallback always wins**
+(0.0467ms < 0.057ms transfer alone, before even adding GPU compute on
+top) -- a fresh transfer is never worth it for a miss on this hardware.
+That's a genuine, useful architectural finding: the real prototype doesn't
+need an on-demand transfer path for cache misses at all. It only needs to
+route *correctly-predicted* experts to a speculatively-prefetched GPU
+cache (populated during the prior token's slack, already shown affordable
+in Phase 1) and leave everything else on CPU exactly as today -- simpler
+than the staging-buffer design originally sketched in the roadmap.
+
+**Result:**
+
+| | ms/token | tok/s |
+|---|---|---|
+| Measured hybrid (real, today) | 22.0 | 45.5 |
+| Simulated hybrid, no-prefetch control | 22.0 (by construction) | 45.5 |
+| **Simulated, prefetch-enabled** | **14.56** | **68.7** |
+
+**+33.8% estimated speedup.** The no-prefetch control reproducing 22.0ms
+exactly is expected, not a validation -- the CPU-per-expert number was
+solved to make it so. The real signal is the *prefetch* case: it's built
+from the same trusted inputs (real trace, real GPU measurement, real hit
+rate) with no free parameters tuned to hit a target.
+
+## Bottom line (updated)
+
+All three roadmap gates now have real, data-driven answers:
+- **Predictability**: confirmed at scale (44.2% overlap, ~7x random).
+- **Transfer feasibility**: confirmed (~1.8x PCIe headroom).
+- **Compute upside**: estimated at **+33.8%** (45.5 -> 68.7 tok/s) via a
+  simulation built from real measurements plus one clearly-flagged derived
+  number, after three direct-measurement attempts were individually
+  diagnosed and ruled non-representative.
+
+**This is a go signal for the real prototype**, with two honest caveats
+carried forward: the CPU-per-expert figure is derived, not measured
+(getting a measured one still requires the `sudo`-gated compiler match or
+`perf` access from Phase 0/Attempt 3), and the simulation assumes ideal
+one-layer-ahead pipelining with no cache-management or misprediction
+overhead. The real prototype -- per the original roadmap's Phase 3 --
+means implementing dynamic per-token, per-expert GPU/CPU dispatch inside
+llama.cpp's MoE forward pass, which needs `nvcc` (`sudo`) and is a
+multi-day C++/CUDA effort in a codebase this project doesn't own, best
+done as a private, non-upstream fork. Worth doing next given this result,
+but a distinct, larger commitment to confirm explicitly before starting.

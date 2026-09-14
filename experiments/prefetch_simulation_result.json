@@ -1,0 +1,12 @@
+{
+  "gpu_per_expert_ms": 0.021683521999875666,
+  "gpu_attn_total_ms": 4.0853938560176175,
+  "cpu_per_expert_ms_derived": 0.046652620166620785,
+  "transfer_per_expert_ms": 0.05702035035408125,
+  "avg_hit_rate": 0.4422447243439091,
+  "sim_no_prefetch_ms_per_token": 22.0,
+  "sim_prefetch_ms_per_token": 14.559452320094596,
+  "measured_hybrid_ms_per_token": 22.0,
+  "measured_full_cpu_ms_per_token": 34.4,
+  "speedup_vs_measured_hybrid": 0.33820671272297287
+}
