@@ -1,0 +1,283 @@
+"""
+Gradio dashboard for the local, LM-Studio-free MoE stack.
+
+Run with: python app.py
+Requires the `llama-server` binary (built from llama.cpp) on PATH, plus the
+packages in requirements.txt.
+"""
+import sys
+import time
+
+import gradio as gr
+import psutil
+
+try:
+    import pynvml
+except Exception:
+    pynvml = None
+
+from config import Paths, Runtime
+from local_engine import LocalMoEEngine
+from draft_trainer import OnlineDraftTrainer
+from router import prompt_bucket
+
+paths = Paths()
+rt = Runtime()
+
+trainer = OnlineDraftTrainer(paths, rt)
+engine = LocalMoEEngine(paths, rt, on_mismatch=trainer.report_mismatch)
+trainer.on_refresh = engine.reload_draft
+
+
+def gpu_telemetry() -> str:
+    ram = psutil.virtual_memory()
+    cpu = psutil.cpu_percent(interval=None)
+    if pynvml is not None:
+        try:
+            pynvml.nvmlInit()
+            h = pynvml.nvmlDeviceGetHandleByIndex(0)
+            mem = pynvml.nvmlDeviceGetMemoryInfo(h)
+            util = pynvml.nvmlDeviceGetUtilizationRates(h)
+            return (
+                f"**VRAM:** `{mem.used/1024**3:.2f} / {mem.total/1024**3:.2f} GB`\n"
+                f"**GPU Core:** `{util.gpu}%`\n"
+                f"**RAM:** `{ram.used/1024**3:.2f} / {ram.total/1024**3:.2f} GB`\n"
+                f"**CPU:** `{cpu}%`"
+            )
+        except Exception:
+            pass
+    return f"**RAM:** `{ram.used/1024**3:.2f} / {ram.total/1024**3:.2f} GB`\n**CPU:** `{cpu}%`\n**VRAM:** `pynvml unavailable`"
+
+
+fast_path_stats = {"count": 0, "confirmed": 0, "corrected": 0, "total_agree": 0, "total_checked": 0}
+
+
+def trainer_panel() -> str:
+    s = trainer.snapshot_stats()
+    last_update = time.strftime("%H:%M:%S", time.localtime(s.last_update_ts)) if s.last_update_ts else "never"
+    last_refresh = time.strftime("%H:%M:%S", time.localtime(s.last_refresh_ts)) if s.last_refresh_ts else "never"
+    fp = fast_path_stats
+    fp_agree_rate = (fp["total_agree"] / fp["total_checked"]) if fp["total_checked"] > 0 else 0.0
+    lines = [
+        "### Fast path (draft model answers 'quick' bucket alone)",
+        f"* Quick-bucket queries answered: `{fp['count']}`",
+        f"* Confirmed correct by big model: `{fp['confirmed']}`",
+        f"* Corrected after disagreement: `{fp['corrected']}`",
+        f"* Token-level agreement rate: `{fp_agree_rate:.1%}`",
+        "### Draft model online training",
+        f"* Training steps taken: `{s.steps}`",
+        f"* Last batch loss: `{s.last_loss:.4f}`",
+        f"* Mismatches queued: `{s.queued}`",
+        f"* Last training update: `{last_update}`",
+        "### Self-improving draft model (auto merge -> requantize -> hot-swap)",
+        f"* Refresh cycles completed: `{s.refresh_count}`",
+        f"* Last refresh: `{last_refresh}`",
+        f"* Currently serving: `{engine.draft_model_path}`",
+    ]
+    if s.last_refresh_error:
+        lines.append(f"* Last refresh error: `{s.last_refresh_error}`")
+    return "\n".join(lines)
+
+
+def run_inference(message: str, max_tokens: float, history):
+    """Routing rewrite: speculative decoding (engine.generate) measured 4x slower
+    than doing nothing on this hardware (see BENCHMARK_RESULTS.md) because the
+    bottleneck is CPU-bound big-model MoE compute, which verifying draft tokens
+    doesn't reduce. So this no longer calls it for live traffic at all.
+
+    Instead: 'quick'-bucket prompts get answered entirely by the draft model
+    (GPU-resident, not subject to that bottleneck -- genuinely fast), shown
+    immediately, then checked against the big model in the background within
+    this same generator call. If they disagree, the displayed answer is
+    corrected and the mismatch is queued for training -- this is where the
+    online self-improvement loop actually earns its keep now: on the fast
+    path's accuracy, not on speeding up the big model. Everything else uses
+    engine.generate_baseline(), the fastest *correct* option per the benchmark.
+    """
+    if not message.strip():
+        yield history or [], "Enter a prompt first.", gpu_telemetry(), trainer_panel()
+        return
+
+    bucket = prompt_bucket(message)
+    prompt_tokens = engine.draft.tokenize(message.encode("utf-8"))
+    max_tokens_i = int(max_tokens)
+
+    if bucket == "quick":
+        start = time.perf_counter()
+        fast_tokens = engine.generate_fast(list(prompt_tokens), max_tokens=max_tokens_i)
+        fast_elapsed = time.perf_counter() - start
+        fast_text = engine.draft.detokenize(fast_tokens).decode("utf-8", "ignore")
+        all_messages = (history or []) + [
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": fast_text},
+        ]
+        tok_per_sec = (len(fast_tokens) / fast_elapsed) if fast_elapsed > 0 else 0.0
+        route_text = (
+            "### Route decision\n"
+            f"* Bucket: `quick` (draft-only fast path)\n"
+            f"* Tokens/sec: `{tok_per_sec:.2f}`\n"
+            f"* Verifying against big model in background..."
+        )
+        yield all_messages, route_text, gpu_telemetry(), trainer_panel()
+
+        agree, checked, corrected_tokens = engine.verify_fast_answer(
+            list(prompt_tokens), fast_tokens, max_tokens_i
+        )
+        agree_rate = (agree / checked) if checked > 0 else 1.0
+        fast_path_stats["count"] += 1
+        fast_path_stats["total_agree"] += agree
+        fast_path_stats["total_checked"] += checked
+        if corrected_tokens is not None:
+            fast_path_stats["corrected"] += 1
+        else:
+            fast_path_stats["confirmed"] += 1
+        if corrected_tokens is not None:
+            corrected_text = engine.draft.detokenize(corrected_tokens).decode("utf-8", "ignore")
+            all_messages[-1] = {"role": "assistant", "content": corrected_text}
+            route_text = (
+                "### Route decision\n"
+                f"* Bucket: `quick` (draft-only fast path)\n"
+                f"* Tokens/sec: `{tok_per_sec:.2f}`\n"
+                f"* Big model **corrected** this answer after {agree}/{checked} tokens agreed "
+                f"({agree_rate:.1%}) -- mismatch sent to training."
+            )
+        else:
+            route_text = (
+                "### Route decision\n"
+                f"* Bucket: `quick` (draft-only fast path)\n"
+                f"* Tokens/sec: `{tok_per_sec:.2f}`\n"
+                f"* Big model **confirmed** this answer ({checked}/{checked} tokens agreed)."
+            )
+        yield all_messages, route_text, gpu_telemetry(), trainer_panel()
+        return
+
+    start = time.perf_counter()
+    out_tokens = engine.generate_baseline(list(prompt_tokens), max_tokens=max_tokens_i)
+    elapsed = time.perf_counter() - start
+    text = engine.draft.detokenize(out_tokens).decode("utf-8", "ignore")
+    all_messages = (history or []) + [
+        {"role": "user", "content": message},
+        {"role": "assistant", "content": text},
+    ]
+    tok_per_sec = (len(out_tokens) / elapsed) if elapsed > 0 else 0.0
+    route_text = (
+        "### Route decision\n"
+        f"* Bucket: `{bucket}` (big model, no speculative overhead)\n"
+        f"* Tokens/sec: `{tok_per_sec:.2f}`"
+    )
+    yield all_messages, route_text, gpu_telemetry(), trainer_panel()
+
+
+DEFAULT_BENCH_PROMPTS = [
+    "Write a Python function that reverses a singly linked list.",
+    "Explain the CAP theorem in two sentences.",
+    "What is 17 times 24?",
+    "Summarize the plot of Romeo and Juliet in one short paragraph.",
+    "Fix this bug: `def add(a, b): return a - b`",
+]
+
+
+def run_benchmark(prompts_text: str, max_tokens: float):
+    """Real A/B benchmark: speculative decoding ON (engine.generate, draft model
+    proposes / big model verifies) vs OFF (engine.generate_baseline, big model
+    decodes alone). Same model, same server, same prompts -- isolates what
+    speculative decoding itself is actually worth on this hardware, instead of
+    a made-up 'predictive' toggle."""
+    prompts = [p.strip() for p in (prompts_text or "").splitlines() if p.strip()] or DEFAULT_BENCH_PROMPTS
+    rows = []
+    spec_tokens_total, spec_time_total = 0, 0.0
+    base_tokens_total, base_time_total = 0, 0.0
+
+    for p in prompts:
+        prompt_tokens = engine.draft.tokenize(p.encode("utf-8"))
+
+        accepts_before, rejects_before = engine.accepts, engine.rejects
+        start = time.perf_counter()
+        spec_out = engine.generate(list(prompt_tokens), max_tokens=int(max_tokens))
+        spec_elapsed = time.perf_counter() - start
+        d_accept = engine.accepts - accepts_before
+        d_reject = engine.rejects - rejects_before
+        prompt_accept_rate = (d_accept / (d_accept + d_reject)) if (d_accept + d_reject) > 0 else 0.0
+
+        start = time.perf_counter()
+        base_out = engine.generate_baseline(list(prompt_tokens), max_tokens=int(max_tokens))
+        base_elapsed = time.perf_counter() - start
+
+        spec_tps = (len(spec_out) / spec_elapsed) if spec_elapsed > 0 else 0.0
+        base_tps = (len(base_out) / base_elapsed) if base_elapsed > 0 else 0.0
+        speedup = (spec_tps / base_tps) if base_tps > 0 else 0.0
+
+        spec_tokens_total += len(spec_out)
+        spec_time_total += spec_elapsed
+        base_tokens_total += len(base_out)
+        base_time_total += base_elapsed
+
+        label = p if len(p) <= 40 else p[:37] + "..."
+        rows.append(
+            f"| `{label}` | {spec_tps:.2f} | {base_tps:.2f} | {speedup:.2f}x | {prompt_accept_rate:.1%} |"
+        )
+
+    spec_avg = (spec_tokens_total / spec_time_total) if spec_time_total > 0 else 0.0
+    base_avg = (base_tokens_total / base_time_total) if base_time_total > 0 else 0.0
+    overall_speedup = (spec_avg / base_avg) if base_avg > 0 else 0.0
+
+    summary = (
+        f"**Speculative decoding ON:** {spec_avg:.2f} tok/s average\n\n"
+        f"**Speculative decoding OFF (big model alone):** {base_avg:.2f} tok/s average\n\n"
+        f"**Speedup from speculative decoding: {overall_speedup:.2f}x**"
+    )
+    table = (
+        "| Prompt | Spec ON tok/s | Spec OFF tok/s | Speedup | Draft accept rate |\n"
+        "|---|---|---|---|---|\n" + "\n".join(rows)
+    )
+    return f"{summary}\n\n{table}"
+
+
+with gr.Blocks(title="Local MoE Router (no LM Studio)") as demo:
+    gr.Markdown(
+        "# Local MoE Router\n"
+        "Runs entirely through llama.cpp, controlled from this script. No LM Studio dependency.\n\n"
+        "MoE experts are statically split GPU/CPU via `-ot` at load time (see `config.py`); "
+        "the draft model self-adapts in the background using accept/reject mismatches "
+        "(see `draft_trainer.py`)."
+    )
+    with gr.Row():
+        with gr.Column(scale=3):
+            prompt = gr.Textbox(label="Prompt", lines=6)
+            max_tokens = gr.Slider(32, 1024, value=256, step=32, label="Max output tokens")
+            run = gr.Button("Generate")
+            chat = gr.Chatbot(label="Conversation", height=480)
+        with gr.Column(scale=2):
+            route_panel = gr.Markdown("Awaiting first request...")
+            gpu_panel = gr.Markdown(gpu_telemetry())
+            train_panel = gr.Markdown(trainer_panel())
+
+    with gr.Accordion("Benchmark: speculative decoding ON vs OFF (tok/s)", open=False):
+        bench_prompts = gr.Textbox(
+            label="Prompts (one per line, blank = built-in default set)",
+            lines=5,
+            placeholder="\n".join(DEFAULT_BENCH_PROMPTS),
+        )
+        bench_max_tokens = gr.Slider(32, 512, value=128, step=32, label="Max output tokens per prompt")
+        bench_run = gr.Button("Run benchmark")
+        bench_results = gr.Markdown("Results will appear here after a run.")
+        bench_run.click(fn=run_benchmark, inputs=[bench_prompts, bench_max_tokens], outputs=[bench_results])
+
+    run.click(fn=run_inference, inputs=[prompt, max_tokens, chat], outputs=[chat, route_panel, gpu_panel, train_panel])
+    prompt.submit(fn=run_inference, inputs=[prompt, max_tokens, chat], outputs=[chat, route_panel, gpu_panel, train_panel])
+
+    demo.load(fn=lambda: (gpu_telemetry(), trainer_panel()), inputs=None, outputs=[gpu_panel, train_panel])
+
+
+if __name__ == "__main__":
+    try:
+        demo.launch(server_name="127.0.0.1", server_port=7860, share=False)
+    finally:
+        # Each cleanup step gets its own try/except: a second Ctrl+C (or anything
+        # else) raising out of trainer.stop() must not skip engine.big.stop() --
+        # that's what orphans the 18GB llama-server process on a forced shutdown.
+        for cleanup in (trainer.stop, engine.big.stop):
+            try:
+                cleanup()
+            except BaseException as exc:
+                print(f"[shutdown] {cleanup!r} raised {exc!r}, continuing", file=sys.stderr)

@@ -1,0 +1,9 @@
+llama-cpp-python
+gradio
+psutil
+pynvml
+torch
+transformers
+peft
+requests
+gguf

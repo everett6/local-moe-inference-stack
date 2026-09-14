@@ -1,0 +1,20 @@
+# Model weights -- too large for git, and not ours to redistribute
+models/
+Model Training/
+*.gguf
+*.safetensors
+
+# Vendored upstream llama.cpp clone, kept locally for reading source only
+llama.cpp-src/
+
+# Runtime state / logs, regenerated on every run
+state/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.cache/
+
+# Auto-refresh cycle's scratch output
+models/refreshed/
