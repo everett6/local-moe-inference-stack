@@ -23,7 +23,6 @@ import math
 from collections import Counter, defaultdict
 
 PATH = "/home/everett/AI2/experiments/expert_trace.jsonl"
-TEST_PROMPT_IDS = {6, 7}  # last two prompts held out; everything else trains
 
 rows = []
 with open(PATH) as f:
@@ -34,6 +33,15 @@ n_expert = 128  # from GGUF metadata (qwen3moe.expert_count), confirmed this ses
 n_expert_used = len(rows[0]["experts"])
 prompt_ids = sorted(set(r["prompt_id"] for r in rows))
 topics = {r["prompt_id"]: r["topic"] for r in rows}
+
+# Hold out the last prompt of each topic block -- one full prompt per topic,
+# same split train_predictor_v2.py uses, so baselines and model results are
+# comparable on identical held-out data regardless of how many prompts
+# expert_trace.py's PROMPTS list happens to contain.
+by_topic = defaultdict(list)
+for pid in prompt_ids:
+    by_topic[topics[pid]].append(pid)
+TEST_PROMPT_IDS = set(ids[-1] for ids in by_topic.values())
 
 # index: (prompt_id, layer) -> {token_pos: set(experts)}
 by_pl = defaultdict(dict)

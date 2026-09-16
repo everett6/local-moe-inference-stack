@@ -121,7 +121,7 @@ the shape of prototype the roadmap called for anyway (Track 2's "smallest
 possible prototype") -- this result is a concrete argument for building
 exactly that, not a fancier learned version, at least as a first cut.
 
-### Honest caveats (updated)
+### Honest caveats (at the time)
 
 - 8 prompts, greedy decoding, one model. More/longer prompts, sampled
   (non-greedy) decoding, and other MoE models would all be worth checking
@@ -131,9 +131,64 @@ exactly that, not a fancier learned version, at least as a first cut.
   per-layer model, more data, or more training could still close the gap --
   but the effort-to-benefit case for that is weaker now that the free
   baseline is this close to the ceiling.
-- All code artifacts are in this directory: `expert_trace.py` (collection,
-  now supports a `PROMPTS` list with per-prompt topic/n_predict and clean
-  context resets between prompts), `analyze_trace.py` (overlap, decay,
-  Markov baseline, train/test split), `train_predictor.py` (MLP training +
-  eval). `expert_trace.jsonl` (82K rows) and `split.json` are the underlying
-  data if you want to try something else against the same held-out set.
+
+## Update: v2 -- per-layer models beat naive-repeat (later session)
+
+Acted on the exact caveat above instead of leaving it as a maybe. Two
+changes, both aimed at named weaknesses in v1, not a bigger model:
+
+1. **Per-layer models, not pooled.** v1 shared one set of weights across
+   all 48 layers with just a layer-embedding hint. Per-layer overlap
+   characteristics genuinely differ (layers 0/47: 17-22% overlap; the
+   30s-band: 58-73%), so a shared model has to compromise across regimes
+   that don't behave alike. v2 trains 48 small, independent models, one
+   per layer (`train_predictor_v2.py`).
+2. **More data.** Scaled `expert_trace.py`'s `PROMPTS` list from 8 to 25
+   (5 per topic instead of 1-2), 255K trace rows total, so each of the 48
+   per-layer models still gets several thousand training examples of its
+   own. Held out one full prompt per topic (5 total, never touched in
+   training) -- a larger, more representative test set than v1's 2.
+
+**Result, recall@8 on held-out prompts, naive-repeat recomputed fresh on
+this same data for a fair comparison:**
+
+| Predictor | Recall@8 (held-out) |
+|---|---|
+| naive-repeat | 45.9% |
+| Markov (normalized, same as v1's method) | 41.0% |
+| **v2 per-layer MLP (1-step history)** | **50.6%** |
+| **v2 per-layer MLP (2-step history)** | **51.0%** |
+
+**First trained predictor in this line of work to beat naive-repeat.**
++5.0 points (51.0% vs 45.9%), and it beats the baseline on 43 of 48
+individual layers, not just on average. 2-step history (also seeing
+E_{t-2}) helps marginally over 1-step (51.0% vs 50.6%) -- most of the
+signal is still in the immediately preceding step, consistent with the
+overlap-decay numbers (45.8% at k=1 dropping to 34.9% at k=5).
+
+The win is concentrated exactly where you'd predict from the pilot's
+per-layer breakdown: layer 47 goes from 25.0% (naive-repeat) to 42.4%
+(model), layer 0 from 10.6% to 26.4% -- the two layers where "just repeat
+the last token's experts" was weakest to begin with, because those layers
+don't recur as much. A per-layer model can learn each layer's actual
+regime instead of a compromise; a small number of middle layers (e.g. 18,
+30) see a slight decrease (~1-1.5 points) where naive-repeat was already
+very strong (>60%) and there wasn't much room to add.
+
+**What this changes for the prefetch prototype:** the honest v1
+conclusion -- "you don't need a trained predictor, the free heuristic is
+competitive" -- needs updating. A per-layer model provides a real,
+measured lift in prediction accuracy, particularly at the layers where
+the free heuristic was worst. `PREFETCH_FEASIBILITY.md`'s compute-upside
+simulation used naive-repeat's 44.2%/47.8% hit rate as its predictor;
+rerunning that simulation with v2's ~51% hit rate (higher, and more evenly
+distributed across layers instead of concentrated in the already-easy
+middle band) is a natural next step before finalizing a prefetch design.
+
+All code artifacts are in this directory: `expert_trace.py` (collection,
+`PROMPTS` list now 25 entries), `analyze_trace.py` (overlap, decay, Markov
+baseline, per-topic held-out split), `train_predictor.py` /
+`expert_predictor.pt` (v1, pooled model, kept for reference),
+`train_predictor_v2.py` / `expert_predictor_v2.pt` (v2, per-layer models,
+the current best). `expert_trace.jsonl` (255K rows) and `split.json` are
+the underlying data.
