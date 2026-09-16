@@ -109,7 +109,7 @@ def run_native_spec(paths: Paths, rt: Runtime):
         "-t", str(rt.threads),
         "--port", str(PORT),
         "-ngl", "999",
-        "-ot", f"{rt.moe_cpu_tensor_regex}=CPU",
+        "--n-cpu-moe", str(rt.n_cpu_moe),
         "-fa", "on",
         "--spec-draft-model", paths.draft_model_gguf,
         "--spec-type", "draft-simple",

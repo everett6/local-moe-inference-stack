@@ -62,6 +62,21 @@ class Runtime:
     # regex to your model's actual tensor names (check llama.cpp's startup
     # log or `gguf-dump <model>` -- names vary by architecture).
     moe_cpu_tensor_regex: str = r"ffn_(gate|down|up)_exps"
+    # How many of the 48 layers keep their MoE experts in CPU RAM. Everything
+    # above this index puts its experts in VRAM instead.
+    #
+    # `moe_cpu_tensor_regex` above is all-or-nothing -- it pins EVERY layer's
+    # experts to CPU, which measured 1750 MiB of the 12227 MiB card in use and
+    # 47.1 tok/s. experiments/moe_offload_sweep.py swept this value: throughput
+    # rises monotonically as experts move onto the GPU, to 81.7 tok/s at 20
+    # (11514 MiB), and 19 fails to allocate. So 20 is the edge, and it is worth
+    # 1.74x on every token generated.
+    #
+    # Raise this if you enlarge n_ctx, add a draft model, or run anything else on
+    # the card -- at 20 there is only ~700 MiB of headroom and the failure mode
+    # is llama-server refusing to start. 24 (~10.1 GB, 74.0 tok/s) leaves room
+    # for a draft model and is still 1.57x over the old setting.
+    n_cpu_moe: int = 20
     # Online draft-model training
     train_batch_size: int = 16
     lora_r: int = 8

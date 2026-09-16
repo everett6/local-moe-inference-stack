@@ -48,7 +48,9 @@ class BigModelServer:
             "-t", str(rt.threads),
             "--port", str(port),
             "-ngl", "999",
-            "-ot", f"{rt.moe_cpu_tensor_regex}=CPU",
+            # --n-cpu-moe, not -ot: the regex form pins every layer's experts to
+            # CPU and left 10 GB of the card unused. See Runtime.n_cpu_moe.
+            "--n-cpu-moe", str(rt.n_cpu_moe),
             "-fa", "on",
         ]
         env = dict(os.environ)

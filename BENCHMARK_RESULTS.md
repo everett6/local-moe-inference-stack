@@ -1,5 +1,22 @@
 # AI2 3-way benchmark results
 
+> **CORRECTION (superseded in part by `SPEC_DECODING.md`).** Two findings below
+> are wrong:
+>
+> 1. **"Native speculative decoding is only ~1.02x"** — speculative decoding was
+>    never running. Qwen2.5-Coder-0.5B is a Qwen2.5 model and the target is
+>    Qwen3; llama-server logs `the target and draft vocabs are not compatible`
+>    and then keeps serving *without* speculation. The 1.02x was plain
+>    generation. Conclusion #2 below, and the "speculative decoding isn't a
+>    productive place to optimize" reasoning built on it, do not follow from
+>    this data.
+> 2. **Every tok/s number here is ~1.74x pessimistic.** They were measured with
+>    all MoE experts pinned to CPU, which left 10 of the card's 12 GB unused.
+>    `--n-cpu-moe 20` raises the baseline from 47.1 to 81.7 tok/s. Applied in
+>    `config.py`; this file has not been re-measured.
+>
+> The thread-count and flash-attention tuning below still stands.
+
 Hardware: RTX 5070 (12GB VRAM) + 32GB RAM, 32 CPU threads. Model: Qwen3-30B-A3B-2507
 (Q4_K_M), MoE experts pinned to CPU RAM via `-ot`, draft model Qwen2.5-Coder-0.5B (Q8_0).
 Prompts: 5 real, varied prompts (code, math, summarization, bug-fix). max_tokens ceiling
@@ -33,8 +50,10 @@ points).
    paying full generation cost, so "verifying" k draft tokens costs as much big-model
    compute as generating k tokens directly, on top of draft-model overhead and
    extra HTTP round trips.
-2. **Native C++ speculative decoding (llama-server's own `--spec-type draft-simple`)
-   is only ~1.02x -- essentially parity with plain generation, not a real win either**,
+2. ~~**Native C++ speculative decoding (llama-server's own `--spec-type draft-simple`)
+   is only ~1.02x -- essentially parity with plain generation, not a real win either**~~
+   **RETRACTED -- speculation never engaged (vocab mismatch, see the correction at
+   the top). The measurement below is plain generation.** The original text:
    on this specific 30B-A3B MoE + 0.5B draft pairing on this hardware. This is the
    more important finding: it means speculative decoding itself isn't currently a
    productive place to keep optimizing for this model/hardware combination, even
@@ -52,7 +71,7 @@ points).
 |---|---|---|
 | Baseline (no speculative decoding) | 46.29 | 1.00x |
 | Hand-rolled Python speculative (this project) | 11.76 | 0.25x |
-| Native llama-server speculative (--spec-type draft-simple) | 47.37 | 1.02x |
+| ~~Native llama-server speculative (--spec-type draft-simple)~~ *(speculation never engaged -- this is the baseline again)* | 47.37 | 1.02x |
 
 ## Baseline -- per prompt
 

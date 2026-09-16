@@ -1,5 +1,15 @@
 # EAGLE3 draft model: tried, doesn't work on this setup
 
+> **FOLLOW-UP: `SPEC_DECODING.md` answers the open question below.** The
+> "quantization/CPU-offload mismatch" hypothesis in §"Most likely cause" was not
+> the useful question. Measuring this box's batching curve shows that *any*
+> draft model here must reach 65-89% per-token acceptance just to break even,
+> and that a perfect one returns at most 1.69x at k=3. EAGLE3 reaches 18.5-31.4%
+> at greedy (better than the 10-15% recorded here, still far under the bar), so
+> self-training the head has a best realistic outcome of roughly "no longer
+> slower". Recommendation: don't. The same investigation found a **1.74x** win
+> in the MoE CPU/GPU split instead.
+
 You asked to try an open-source EAGLE3 draft model on the theory that it should beat
 the standalone Qwen2.5-Coder-0.5B draft in `BENCHMARK_RESULTS.md`. It's the right
 theory -- EAGLE3 reads the target model's own hidden states instead of running an
