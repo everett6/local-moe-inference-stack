@@ -35,56 +35,116 @@ from llama_cpp import Llama
 from config import Paths, Runtime
 
 
+def _gpu_free_mb() -> Optional[int]:
+    """Free VRAM on GPU 0, or None if nvidia-smi isn't available (check skipped)."""
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return int(out.stdout.strip().splitlines()[0])
+    except Exception:
+        return None
+
+
 class BigModelServer:
     """Owns the llama.cpp server subprocess for the 30B model."""
+
+    N_LAYERS = 48  # Qwen3-30B-A3B; --n-cpu-moe at this value = every expert on CPU
 
     def __init__(self, paths: Paths, rt: Runtime, port: int = 8090):
         self.port = port
         self.base_url = f"http://127.0.0.1:{port}"
-        cmd = [
+        self.rt = rt
+        self.env = dict(os.environ)
+        if paths.llama_server_ld_library_path:
+            existing = self.env.get("LD_LIBRARY_PATH", "")
+            self.env["LD_LIBRARY_PATH"] = (
+                f"{paths.llama_server_ld_library_path}:{existing}" if existing else paths.llama_server_ld_library_path
+            )
+        self.base_cmd = [
             paths.llama_server_bin,
             "-m", paths.big_model_gguf,
             "-c", str(rt.n_ctx),
             "-t", str(rt.threads),
             "--port", str(port),
             "-ngl", "999",
-            # --n-cpu-moe, not -ot: the regex form pins every layer's experts to
-            # CPU and left 10 GB of the card unused. See Runtime.n_cpu_moe.
-            "--n-cpu-moe", str(rt.n_cpu_moe),
             "-fa", "on",
         ]
-        env = dict(os.environ)
-        if paths.llama_server_ld_library_path:
-            existing = env.get("LD_LIBRARY_PATH", "")
-            env["LD_LIBRARY_PATH"] = (
-                f"{paths.llama_server_ld_library_path}:{existing}" if existing else paths.llama_server_ld_library_path
-            )
         # stdout/stderr MUST go to a real file, not subprocess.PIPE: llama-server logs
         # every request, and nothing here was ever draining a PIPE's OS buffer (64KB).
         # Once that filled, llama-server's write() call blocked and the whole server
         # deadlocked on the very first real request -- silently, since /health still
         # answered from a thread that had already logged its own startup line.
         self.log_path = os.path.join(os.path.dirname(paths.mismatch_log_path) or ".", "llama_server.log")
-        self._log_file = open(self.log_path, "w")
-        self.proc = subprocess.Popen(cmd, stdout=self._log_file, stderr=subprocess.STDOUT, text=True, env=env)
+        self._log_file = None
+        self.proc = None
         atexit.register(self.stop)
-        self._wait_for_ready()
+        self.n_cpu_moe = self._launch_best_fit()
 
-    def _wait_for_ready(self, timeout: float = 120.0):
+    def _launch_best_fit(self) -> int:
+        """Start llama-server with the most experts in VRAM that currently fit.
+
+        --n-cpu-moe, not -ot: the regex form pins every layer's experts to CPU and
+        left 10 GB of the card unused. But how many layers fit depends on what else
+        holds VRAM *right now* -- this process's own draft model, a browser -- so it
+        is found at launch rather than hardcoded. See Runtime.n_cpu_moe.
+        """
+        tried = []
+        n = max(0, min(self.rt.n_cpu_moe, self.N_LAYERS))
+        while True:
+            outcome = self._try_launch(n)
+            tried.append(f"{n}:{outcome}")
+            if outcome == "ok":
+                print(f"[BigModelServer] --n-cpu-moe {n} "
+                      f"({self.N_LAYERS - n}/{self.N_LAYERS} layers' experts in VRAM)")
+                return n
+            if outcome == "no_headroom" and n >= self.N_LAYERS:
+                # Nothing left to move off the GPU; a running server with thin
+                # headroom beats no server.
+                print(f"[BigModelServer] --n-cpu-moe {n}, below requested VRAM headroom")
+                return n
+            self.stop()
+            if n >= self.N_LAYERS:
+                raise RuntimeError(
+                    f"llama-server failed to load even with every expert on CPU "
+                    f"(tried {', '.join(tried)}) -- check {self.log_path}. With nothing "
+                    "left to offload, this is not a VRAM-split problem: look for a bad "
+                    f"model path, missing CUDA libs, or port {self.port} already in use."
+                )
+            n = min(n + self.rt.n_cpu_moe_step, self.N_LAYERS)
+
+    def _try_launch(self, n_cpu_moe: int) -> str:
+        """Returns 'ok', 'load_failed' (process exited during load, i.e. OOM), or
+        'no_headroom' (running, but left less free VRAM than rt.vram_headroom_mb)."""
+        if self._log_file is not None:
+            self._log_file.close()
+        self._log_file = open(self.log_path, "w")
+        cmd = self.base_cmd + ["--n-cpu-moe", str(n_cpu_moe)]
+        self.proc = subprocess.Popen(cmd, stdout=self._log_file, stderr=subprocess.STDOUT,
+                                     text=True, env=self.env)
+        if not self._wait_for_ready():
+            return "load_failed"
+        free = _gpu_free_mb()
+        if free is not None and free < self.rt.vram_headroom_mb:
+            return "no_headroom"
+        return "ok"
+
+    def _wait_for_ready(self, timeout: float = 300.0) -> bool:
         start = time.time()
         while time.time() - start < timeout:
+            # llama-server exits on a failed allocation instead of hanging, so a
+            # dead process means "doesn't fit" -- no need to sit out the timeout.
+            if self.proc.poll() is not None:
+                return False
             try:
                 r = requests.get(f"{self.base_url}/health", timeout=2)
                 if r.status_code == 200:
-                    return
+                    return True
             except Exception:
                 pass
             time.sleep(1.0)
-        raise RuntimeError(
-            f"llama-server did not become healthy in time -- check {self.log_path} "
-            "for the real error, most likely "
-            "a bad -ot regex or not enough VRAM for even the pinned tensors."
-        )
+        return False
 
     def greedy_tokens_with_ids(self, tokens: List[int], n_predict: int) -> List[int]:
         """Have the big model greedily generate n_predict tokens from `tokens` and
@@ -124,9 +184,17 @@ class BigModelServer:
         return r.json()
 
     def stop(self):
-        if self.proc.poll() is None:
+        if self.proc is not None and self.proc.poll() is None:
             self.proc.terminate()
-        self._log_file.close()
+            try:
+                # Wait for it to actually release VRAM, or the next fallback launch
+                # sees the old process's allocation and fails for no real reason.
+                self.proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(timeout=10)
+        if self._log_file is not None and not self._log_file.closed:
+            self._log_file.close()
 
 
 class LocalMoEEngine:

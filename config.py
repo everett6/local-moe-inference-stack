@@ -72,11 +72,22 @@ class Runtime:
     # (11514 MiB), and 19 fails to allocate. So 20 is the edge, and it is worth
     # 1.74x on every token generated.
     #
-    # Raise this if you enlarge n_ctx, add a draft model, or run anything else on
-    # the card -- at 20 there is only ~700 MiB of headroom and the failure mode
-    # is llama-server refusing to start. 24 (~10.1 GB, 74.0 tok/s) leaves room
-    # for a draft model and is still 1.57x over the old setting.
+    # This is the FASTEST value to try, not a guarantee it fits. At 20 there is
+    # only ~700 MiB of headroom on an otherwise empty card, and a normal desktop
+    # takes that away: Firefox alone held 456 MiB during testing, and
+    # LocalMoEEngine loads its draft model onto the GPU (~600 MiB) *before* the
+    # big model starts. Either one makes 20 fail to allocate.
+    #
+    # So BigModelServer treats this as a starting point: if llama-server fails to
+    # load, or loads but leaves less than `vram_headroom_mb` free, it restarts
+    # with `n_cpu_moe_step` more layers on CPU, up to all 48. You get the fastest
+    # split that actually fits right now, instead of a crash.
     n_cpu_moe: int = 20
+    n_cpu_moe_step: int = 2
+    # Free VRAM to keep after the big model loads. Covers a draft hot-swap in
+    # LocalMoEEngine.reload_draft (old and new draft briefly both on the GPU) and
+    # a browser tab opened later. 0 = pack the card as tightly as it will load.
+    vram_headroom_mb: int = 768
     # Online draft-model training
     train_batch_size: int = 16
     lora_r: int = 8

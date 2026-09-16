@@ -14,7 +14,8 @@ with draft models, and two earlier results in this repo that were wrong.
 
 | Finding | Effect |
 |---|---|
-| **`--n-cpu-moe 20` instead of pinning all experts to CPU** | **47.1 → 81.7 tok/s (1.74x)**. Applied to `config.py`. |
+| **`--n-cpu-moe` instead of pinning all experts to CPU** | **47.1 → 81.7 tok/s (1.74x)** on an empty card. Applied, with launch-time fitting so it can't fail to start (§5). |
+| Code-specialised drafting, with confidence gating | 85-91% acceptance on code, **still 0.89-0.93x** once the draft's VRAM cost is counted (§4c) |
 | EAGLE3 head, as shipped | 0.61-0.76x (slower than no speculation) |
 | Qwen2.5-Coder-0.5B draft | **Never ran.** Vocab incompatible with the Qwen3 target; llama-server logged an error and served without speculation. |
 | Qwen3-0.6B draft (the vocab-compatible substitute) | 0.62-0.91x at 18.5-61.3% acceptance |
@@ -217,6 +218,60 @@ acceptance assumption: real acceptance is bursty rather than i.i.d., so measured
 `mean len` runs above `sum(a^i)` (1.85 measured vs 1.60 predicted at k=2). So §2
 slightly *understates* what a draft delivers — and every arm still loses.
 
+### 4c. What about a *code* draft? Acceptance clears the bar; the VRAM bill doesn't
+
+The natural follow-up to "would the coder 0.5B be better": acceptance is not
+uniform. EAGLE3 ranged 6.6% to 54.9% by prompt, best on code. Maybe a draft
+clears the bar on code specifically and the mixed prompt set hid it. There was
+also one lever no arm had used: `--spec-draft-p-min`, which drafts only when the
+draft is confident. Every run above used the default of 0.0, i.e. always draft.
+
+`experiments/workload_pmin_sweep.py`, same Qwen3-0.6B draft, run separately on
+pure-code and pure-prose prompts at `--n-cpu-moe 24` (acceptance now summed over
+every slot's log line, fixing the last-slot caveat from §3a):
+
+| arm | code tok/s | code accept | prose tok/s | prose accept |
+|---|---|---|---|---|
+| baseline | 66.47 | — | 69.79 | — |
+| k=1, p-min 0.0 | 0.97x | 75.6% | 0.84x | 57.9% |
+| k=2, p-min 0.8 | 0.99x | 91.0% | 0.83x | 85.2% |
+| k=4, p-min 0.8 | **1.06x** | 87.7% | 0.85x | 83.5% |
+
+So there is something here. On code, ungated acceptance is 75.6%, right on the
+75% break-even, and gating pushes it to 88-91%. That's the first arm in this
+investigation to beat its baseline. Prose loses however it's tuned.
+
+Two reasons not to take the 1.06x at face value:
+
+1. **Noise.** That code baseline was 66.47 tok/s. The same config measured 73.01
+   an hour earlier. A ~10% swing is bigger than the 6% win.
+2. **Wrong baseline.** The draft takes VRAM that would otherwise hold experts,
+   and §5 shows experts in VRAM are worth more per GB than anything else here.
+   Comparing draft vs no-draft at the *same* split hides that cost.
+
+`experiments/code_draft_confirm.py` fixes both: three interleaved rounds (so
+drift hits every arm equally), and every arm fitted to the tightest `--n-cpu-moe`
+it can actually load at, so the draft pays for its VRAM in experts:
+
+| arm (code prompts) | fitted split | median tok/s | min-max | vs no draft | acceptance |
+|---|---|---|---|---|---|
+| **no draft** | 21 | **79.57** | 78.85-80.05 | 1.00x | — |
+| k=6, p-min 0.8 | 24 | 74.15 | 71.46-75.22 | 0.93x | 84.7% |
+| k=4, p-min 0.8 | 24 | 72.89 | 72.59-73.92 | 0.92x | 87.7% |
+| k=8, p-min 0.9 | 24 | 70.76 | 67.82-71.15 | 0.89x | 90.5% |
+| k=6, p-min 0.9 | 24 | 68.42 | 67.89-70.46 | 0.86x | 90.8% |
+
+The ranges don't overlap. The draft costs three layers of experts (21 → 24),
+worth ~6-7 tok/s. At the same split, the best draft arm is roughly at parity
+with no draft (74.15 vs the 73-74 that split measures without one). So on code,
+a well-gated draft about pays for its own compute and nothing more. It can't
+cover the experts it pushed off the card.
+
+**That answers the coder-draft question for good.** A code-specialised draft at
+85-91% acceptance is about the best case any draft-model project here could
+produce, self-trained or not, and it's still 7% slower than giving the same
+VRAM to experts.
+
 ## 5. The thing that did work: stop pinning every expert to CPU
 
 `config.py` pinned **all** MoE experts to CPU:
@@ -248,10 +303,35 @@ and `benchmark_all.py`. Verified end-to-end through the app's own launch path
 (`BigModelServer`, not the experiment harness) on the exact prompt
 `BENCHMARK_RESULTS.md` measured at 45.79 tok/s: **79.72 tok/s**.
 
-Caveat, and it is a real one: 20 leaves ~700 MiB of headroom. Raising `n_ctx`,
-adding a draft model, or anything else touching the GPU will push it over and
-llama-server will refuse to start. **24** (10.1 GB, 74.0 tok/s, still 1.57x)
-is the setting to use if you want room to experiment.
+### The first version of this broke startup, now fixed
+
+Hardcoding 20 was a mistake, and it shipped in the first commit on this branch.
+20 leaves ~700 MiB free on an **empty** card, and a real desktop doesn't have an
+empty card:
+
+- **Firefox held 456 MiB** during a later run, and 20 failed to load. It missed
+  by 221 MiB (`cudaMalloc failed: out of memory` in the compute-buffer reserve).
+- **`LocalMoEEngine` loads its draft model onto the GPU (~600 MiB) *before*
+  starting the 30B.** So `app.py` would have failed to start at 20 even with no
+  browser open. The earlier 79.72 tok/s check missed this because it launched
+  `BigModelServer` directly and skipped the draft.
+
+The fix is to pick the split at launch instead of hardcoding it.
+`BigModelServer` now starts at `Runtime.n_cpu_moe` (still 20, the fastest), and
+if llama-server dies during load, or loads but leaves less than
+`Runtime.vram_headroom_mb` (768) free, it stops the process, waits for VRAM to
+actually be released, and retries with `n_cpu_moe_step` (2) more layers on CPU,
+up to all 48. The chosen value is on `BigModelServer.n_cpu_moe`. A failed
+attempt costs a second or two, since llama-server exits quickly on a failed
+allocation.
+
+Verified on exactly the case that broke: full `LocalMoEEngine`, draft on the
+GPU, Firefox open. It stepped 20 → 22 → 24, was up in 7 s with 1144 MiB free,
+and ran **73.76 tok/s**. That's the realistic number for `app.py` as built.
+81.7 is the ceiling on an otherwise empty card.
+
+`benchmark_all.py`'s native-spec launch has no such loop and also puts a draft on
+the card, so it now uses `max(n_cpu_moe, 24)`.
 
 ### This makes speculative decoding *harder*, not easier
 
@@ -291,6 +371,13 @@ baseline slightly less slow. The baseline is now 82 tok/s, and the bar is higher
    Worth knowing, but it no longer changes the decision: §2 caps the payoff from
    *any* draft-head improvement at roughly 1.1x, so "yes, quantization is the
    cause" and "no, it isn't" lead to the same recommendation.
+5. **Your call: the app's own draft model costs ~6 tok/s of VRAM.**
+   `LocalMoEEngine` keeps Qwen2.5-Coder-0.5B on the GPU for the hand-rolled
+   Python speculative loop (0.25x in `BENCHMARK_RESULTS.md`) and for online
+   LoRA training. It forces the big model from split 20 or 21 to 24: 73.8 tok/s
+   instead of ~80. Loading that draft with `n_gpu_layers=0` (CPU) would give
+   those experts back, at the price of a slower draft in a loop that's already a
+   loss. Not changed here, since the online-training feature depends on it.
 
 ## 7. The self-distillation pipeline (built, not run)
 
