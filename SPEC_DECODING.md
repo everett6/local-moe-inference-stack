@@ -209,7 +209,9 @@ gigabytes of the card sat empty while the CPU did all the expert math.
 | 19 | fails to allocate | | |
 
 **Applied**: `Runtime.n_cpu_moe = 20` in `config.py`, used by `local_engine.py`
-and `benchmark_all.py`.
+and `benchmark_all.py`. Verified end-to-end through the app's own launch path
+(`BigModelServer`, not the experiment harness) on the exact prompt
+`BENCHMARK_RESULTS.md` measured at 45.79 tok/s: **79.72 tok/s**.
 
 Caveat, and it is a real one: 20 leaves ~700 MiB of headroom. Raising `n_ctx`,
 adding a draft model, or anything else touching the GPU will push it over and
@@ -244,6 +246,14 @@ baseline slightly less slow. The baseline is now 82 tok/s, and the bar is higher
    this hardware.
 3. **Re-run `benchmark_all.py`** — every number in `BENCHMARK_RESULTS.md`
    predates the MoE fix and is now ~1.74x pessimistic.
+4. **The EAGLE3 quantization diagnostic is built but not run**, and is now
+   optional rather than blocking. `experiments/eagle3_quant_diagnostic.py` tests
+   whether quantizing the target is what wrecks EAGLE3's acceptance, using
+   Qwen3-1.7B (dense, fits in VRAM at BF16) so quantization is the only variable.
+   It needs a 3.4 GB BF16 GGUF that was still downloading when this was written.
+   Worth knowing, but it no longer changes the decision: §2 caps the payoff from
+   *any* draft-head improvement at roughly 1.1x, so "yes, quantization is the
+   cause" and "no, it isn't" lead to the same recommendation.
 
 ## 7. The self-distillation pipeline (built, not run)
 
