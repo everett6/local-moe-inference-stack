@@ -17,6 +17,7 @@ with draft models, and two earlier results in this repo that were wrong.
 | **`--n-cpu-moe 20` instead of pinning all experts to CPU** | **47.1 → 81.7 tok/s (1.74x)**. Applied to `config.py`. |
 | EAGLE3 head, as shipped | 0.61-0.76x (slower than no speculation) |
 | Qwen2.5-Coder-0.5B draft | **Never ran.** Vocab incompatible with the Qwen3 target; llama-server logged an error and served without speculation. |
+| Qwen3-0.6B draft (the vocab-compatible substitute) | 0.62-0.91x at 18.5-61.3% acceptance |
 | `ngram-*` strategies | 0.94-0.99x once made to draft at all |
 | Break-even acceptance a draft must beat | **65-89%**, depending on draft cost |
 | Best case from a *perfect, free* draft | 1.69x at k=3 — and it gets worse, not better, after the MoE fix |
@@ -171,8 +172,8 @@ one to trust.
 **Neither.**
 
 - **The coder draft is not a candidate at all.** It cannot speculate for a Qwen3
-  target at any accuracy — wrong vocabulary. The vocab-compatible substitute is
-  Qwen3-0.6B, which shares the target's tokenizer.
+  target at any accuracy — wrong vocabulary. Its vocab-compatible substitute,
+  Qwen3-0.6B, was measured (§4b) and also loses: 0.91x at its best setting.
 - **Self-training the EAGLE3 head would have to take it from ~25% to ~85%
   acceptance** to stop losing, and clearing that bar returns roughly 1.1x. The
   published ceiling for well-trained EAGLE3 heads is ~80%, which on this curve
@@ -181,6 +182,40 @@ one to trust.
 That is not a statement about EAGLE3 or about training. It is the shallow
 batching curve in §1: this target's decode step does not get cheap enough per
 position to pay for speculation.
+
+### 4b. Qwen3-0.6B, the real version of the "small draft model" question
+
+`experiments/qwen3_draft_test.py`. Draft served alone first to measure its own
+decode cost — **498.8 tok/s standalone, so d = 2.00 ms/token**, which is the one
+term §2 has to be given rather than derive. Then end-to-end at `--n-cpu-moe 24`
+(not 20: the draft needs VRAM too, and its baseline is measured in the same run
+so the ratio stays honest). Baseline 73.01 tok/s:
+
+| draft length k | tok/s | vs base | acceptance | mean accepted len |
+|---|---|---|---|---|
+| 1 | 66.17 | 0.91x | 61.3% | 1.61 |
+| 2 | 60.29 | 0.83x | 42.4% | 1.85 |
+| 3 | 56.40 | 0.77x | 40.3% | 2.21 |
+| 4 | 51.55 | 0.71x | 31.6% | 2.26 |
+| 6 | 44.98 | 0.62x | 18.5% | 2.11 |
+
+61.3% acceptance at k=1 is a perfectly healthy draft model — and break-even at
+this config is **75%**. It falls short and it loses. That is the cleanest
+statement of the whole result: *the draft model is not the problem.*
+
+**This also validates the model in §2**, which was built from the batching curve
+alone, before any of these arms ran:
+
+| k | acceptance | §2 predicts | measured |
+|---|---|---|---|
+| 1 | 61.3% | 0.92x | **0.91x** |
+| 2 | 42.4% | 0.74x | 0.83x |
+| 3 | 40.3% | 0.63x | 0.77x |
+
+Exact at k=1, and conservative by 0.09-0.14x at k=2-3. The gap is the geometric
+acceptance assumption: real acceptance is bursty rather than i.i.d., so measured
+`mean len` runs above `sum(a^i)` (1.85 measured vs 1.60 predicted at k=2). So §2
+slightly *understates* what a draft delivers — and every arm still loses.
 
 ## 5. The thing that did work: stop pinning every expert to CPU
 
@@ -236,7 +271,9 @@ baseline slightly less slow. The baseline is now 82 tok/s, and the bar is higher
 
 ## 6. What's left, in priority order
 
-1. **Nothing, for speculative decoding of any kind.** The self-distillation pipeline is built and
+1. **Nothing, for speculative decoding of any kind.** All four families are now
+   measured — EAGLE3, a standalone small draft, ngram lookup, and the
+   vocab-mismatched coder draft that never ran. The self-distillation pipeline is built and
    documented (§7) but the measurements say not to run it. It is there so the
    decision can be revisited if the hardware changes — a card that fits the
    whole model would steepen the curve and flip this.
