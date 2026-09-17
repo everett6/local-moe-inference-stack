@@ -15,18 +15,23 @@
 | setup | decode tok/s |
 |---|---|
 | Original config (every MoE expert in RAM) | 47 |
-| **The app as it starts today** (trainer on CPU, draft on GPU) | **~71** |
-| Ceiling: 30B alone on an otherwise empty card | ~82 |
+| **The app as it starts today** (split 23) | **~71** |
+| Ceiling: 30B alone on an otherwise empty card (split 20) | ~82 |
 
-The gap between 71 and 82 is the in-process Qwen2.5-Coder draft model (~600 MB of
-VRAM) that the quick path and the online trainer use.
+The gap between 71 and 82 is the 768 MiB `vram_headroom_mb` safety margin, which
+makes the app stop at split 23. It is **not** the in-process draft model: the
+installed llama-cpp-python is a CPU-only build, so the draft uses no VRAM. An
+earlier version of this file said otherwise.
 
 ### How a request is served
 
-1. `router.prompt_bucket` sorts the prompt.
-2. **`quick` bucket:** the 0.5B draft model answers on its own and is shown
-   immediately. The 30B then replays the answer in the background. Any
-   disagreement corrects the displayed answer and becomes a training example.
+1. `router.prompt_bucket` sorts the prompt, matching whole words, with code and
+   analysis requests checked before the quick rule.
+2. **`quick` bucket:** the 0.5B draft (on the CPU) answers from the chat-
+   templated conversation and is shown immediately. The 30B then replays the
+   answer from the same token ids in the background. Any disagreement corrects
+   the displayed answer and becomes a training example. Conversations over
+   `quick_max_prompt_tokens` (512) skip this and go to the 30B.
 3. **Everything else:** the 30B alone, with its chat template and the whole
    conversation, streamed as it generates (`BigModelServer.stream_chat`).
 4. The trainer (CPU, 4 threads) LoRA-tunes the draft from those mismatches and
@@ -59,37 +64,58 @@ VRAM) that the quick path and the online trainer use.
   correct UTF-8 (the first version garbled "—", emoji, non-Latin text).
 - `BENCHMARK_RESULTS.md`'s "native speculative = 1.02x" was plain generation
   (the draft never loaded). Corrected.
+- **Router** matched keywords as substrings (`"no"` in *know/now/another*,
+  `"what"` in *whatever*, `"cli"` in *client*) and ran its quick rule before the
+  code/analysis lists, so short explicit requests ("Write a Python LRU cache
+  class") went to the 0.5B. Whole-word matching, code/analysis checked first;
+  `tests/test_router.py` (25 cases, 16 failed before the fix).
+- **Quick path chat template.** The draft got bare text: "What is 17 times 24?"
+  → "To solve this problem, we can use Python…"; "Who wrote Pride and
+  Prejudice?" → "I apologize, but I can't assist with that."; two answers came
+  back empty. Both sides now use the 30B's template (verified identical to the
+  chat endpoint's). Token agreement with the 30B 58% → 82%, draft answer
+  1.02 s → 0.44 s (`experiments/quick_path_template.py`). The quick path also
+  now sees the conversation history, and an empty draft answer is answered by
+  the 30B instead of being shown blank and marked "confirmed".
 
 ## Next, in priority order
 
-### 1. Router sends many real questions to the 0.5B model (bug, small)
+### 1. Is the 768 MiB safety margin needed? (measure, ~9 tok/s at stake)
 
-`prompt_bucket` checks for `"what"`, `"why"`, `"no"`, `"fix"`… as **substrings**.
-`"no"` matches *know, now, another, note, cannot*; `"what"` matches *whatever*.
-Any prompt that's 12 words or fewer, or contains one of those anywhere, gets
-answered by the 0.5B draft instead of the 30B. Match whole words, and reconsider
-whether "12 words or fewer" should mean "quick" at all. A short question isn't
-an easy question.
+The app stops at split 23 (~71 tok/s) because splits 20-22 leave less than
+`vram_headroom_mb` free. Split 20-21 runs ~80. The margin only matters if
+llama-server allocates **more** VRAM after its warm-up, or if another program
+grabbing VRAM later can make a running server fail. Test it: start the server
+at split 20 with the margin at 0, allocate GPU memory from another process, then
+run long prompts and long generations. If the server survives, lower the
+margin.
 
-### 2. Quick path has the same missing-chat-template bug (medium)
+**Measure with the machine idle.** During this session a Firefox tab held
+11 GB of RAM and the system was 4.6 GB into swap, which made CPU timings swing
+by 10x and also slows the 30B's RAM-side experts.
 
-`generate_fast` sends raw text to Qwen2.5-Coder-0.5B-*Instruct*, and
-`verify_fast_answer` compares it to the 30B's raw continuation. So both sides of
-the check are un-templated. The user sees a continuation, not an answer, and the
-trainer learns to predict un-templated text. Fixing it means templating both
-sides consistently, which changes the training signal, so treat it as its own
-change.
+### 2. Is the quick path worth having at all? (measure, then decide)
 
-### 3. Is the quick path worth its VRAM? (measure, then decide)
+Two things learned while fixing it:
+- **It is corrected most of the time, even when right.** The check is
+  token-exact against the 30B's phrasing. "17 times 24 is 408." was replaced
+  because the 30B starts "To calculate…". Templated, 6 of 8 quick answers were
+  corrected. So the user often sees an answer, then watches it get replaced.
+- **The draft runs on the CPU**, so its speed depends on conversation length
+  and system load. With history it answered at 2 tok/s once (under memory
+  pressure). The 30B starts streaming in 0.1-0.7 s anyway.
 
-The draft costs ~11 tok/s on every 30B reply (71 vs ~82). Options:
-- keep it on the GPU (today)
-- load the GGUF draft on the CPU: frees the VRAM, but quick answers get slower
-  (0.5B on 16 cores is likely still fast; unmeasured)
-- drop the quick path entirely and send everything to the 30B
+Options: keep it; compare answers semantically instead of token-exactly (keeps
+correct answers, but weakens the training signal, which needs exact tokens);
+install a CUDA build of llama-cpp-python (faster draft, but it would then take
+VRAM from the 30B's experts); or send everything to the 30B and keep the draft
+only as a training target. Measure how often quick answers are *actually*
+wrong, then choose.
 
-Measure quick-path latency on CPU vs GPU and how often quick answers get
-corrected, then choose.
+### 3. Math renders as raw brackets (small)
+
+The 30B writes LaTeX as `\[ … \]`, and the chat shows it as `[ 17 \times 24 = 408 ]`.
+Set `gr.Chatbot(latex_delimiters=…)` to include `\[ \]` and `\( \)`.
 
 ### 4. Long documents: consider ubatch 1024 (optional)
 
@@ -101,8 +127,8 @@ See `SPEC_DECODING.md` §6c.
 ### 5. Refresh the stale benchmarks
 
 Every number in `BENCHMARK_RESULTS.md` predates this session. Re-run
-`benchmark_all.py` once 1-3 are settled, so the new baseline reflects the real
-app.
+`benchmark_all.py` once 1-2 are settled, with the machine idle, so the new
+baseline reflects the real app.
 
 ### Not worth doing
 

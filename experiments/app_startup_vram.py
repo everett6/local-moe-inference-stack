@@ -6,7 +6,9 @@ builds, in this order:
 
   1. OnlineDraftTrainer  -- an fp16 transformers copy of the draft model, placed
                             on Runtime.trainer_device, plus PyTorch's CUDA context
-  2. LocalMoEEngine      -- the GGUF draft via llama-cpp-python, fully on the GPU
+  2. LocalMoEEngine      -- the GGUF draft via llama-cpp-python (requests GPU
+                            offload, but the installed build is CPU-only, so
+                            in practice it uses no VRAM)
   3. BigModelServer      -- the 30B, fitted to whatever VRAM is left
 
 so (1) and (2) are paid out of the big model's expert budget on every request,

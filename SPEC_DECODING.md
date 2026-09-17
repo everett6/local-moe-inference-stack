@@ -311,10 +311,13 @@ empty card:
 
 - **Firefox held 456 MiB** during a later run, and 20 failed to load. It missed
   by 221 MiB (`cudaMalloc failed: out of memory` in the compute-buffer reserve).
-- **`LocalMoEEngine` loads its draft model onto the GPU (~600 MiB) *before*
-  starting the 30B.** So `app.py` would have failed to start at 20 even with no
-  browser open. The earlier 79.72 tok/s check missed this because it launched
-  `BigModelServer` directly and skipped the draft.
+- ~~`LocalMoEEngine` loads its draft model onto the GPU (~600 MiB) before
+  starting the 30B~~. **Correction:** this was wrong. The installed
+  llama-cpp-python is a CPU-only build (`llama_supports_gpu_offload()` is
+  False), so the draft's `n_gpu_layers=-1` is ignored and it uses no VRAM. The
+  app lands on a slower split than the bare server because of the
+  `vram_headroom_mb` margin, not the draft. The OnlineDraftTrainer, however, did
+  put a model on the GPU (§6a).
 
 The fix is to pick the split at launch instead of hardcoding it.
 `BigModelServer` now starts at `Runtime.n_cpu_moe` (still 20, the fastest), and
@@ -352,8 +355,9 @@ baseline slightly less slow. The baseline is now 82 tok/s, and the bar is higher
 ## 6. The app as it actually starts
 
 Every number above launched llama-server on its own. `app.py` doesn't. It builds
-the trainer, then the in-process draft model, then the 30B, and the first two
-take VRAM that would otherwise hold experts.
+the trainer, then the in-process draft model, then the 30B. The trainer took
+VRAM that would otherwise hold experts (fixed below). The draft doesn't: the
+installed llama-cpp-python is CPU-only.
 
 ### 6a. Trainer placement: CPU, 4 threads
 

@@ -35,13 +35,20 @@ the card empty: 47 tok/s. See `SPEC_DECODING.md` §5.)
 
 ### Request routing
 
-`router.prompt_bucket` sorts each prompt:
+`router.prompt_bucket` sorts each prompt, matching whole words. Code and
+analysis requests (write, explain, debug, Python…) always go to the 30B. Short
+prompts and who/what/why questions otherwise count as `quick`.
 
-- **`quick`**: a small draft model (Qwen2.5-Coder-0.5B) answers on its own,
-  shown immediately. The 30B then checks the answer in the background, corrects
-  it if they disagree, and turns each disagreement into a training example.
+- **`quick`**: a small draft model (Qwen2.5-Coder-0.5B, on the CPU) answers on
+  its own, shown immediately. The 30B then checks the answer in the background,
+  corrects it if they disagree, and turns each disagreement into a training
+  example. Both models get the conversation formatted with the 30B's chat
+  template, as the same token ids. Conversations longer than 512 tokens skip the
+  draft and go straight to the 30B.
 - **everything else**: the 30B alone, using its chat template and the full
   conversation, **streamed** as it generates.
+
+Routing is covered by `python3 tests/test_router.py`.
 
 ### Online self-improvement
 
@@ -76,7 +83,8 @@ while a training step runs.
 |---|---|---|
 | `n_cpu_moe` | 20 | fastest split to *try*; launch backs off from here |
 | `n_cpu_moe_step` | 1 | layers moved to RAM per failed attempt |
-| `vram_headroom_mb` | 768 | free VRAM to keep after load (draft hot-swap, a browser) |
+| `vram_headroom_mb` | 768 | free VRAM to keep after load, for other programs; costs ~9 tok/s (split 23 vs 20-21) |
+| `quick_max_prompt_tokens` | 512 | longer conversations skip the CPU draft and go to the 30B |
 | `server_slots` | 1 | llama-server parallel slots; 1 is +2.8 tok/s for a single user |
 | `trainer_device` | `cpu` | where the trainer's model lives |
 | `trainer_cpu_threads` | 4 | caps training's CPU use so replies don't stall |

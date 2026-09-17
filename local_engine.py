@@ -208,6 +208,13 @@ class BigModelServer:
         r.raise_for_status()
         return r.json()
 
+    def apply_template(self, messages: List[dict]) -> str:
+        """Render a conversation with this model's own chat template, ready for
+        the assistant's reply -- the exact prompt /v1/chat/completions would use."""
+        r = requests.post(f"{self.base_url}/apply-template", json={"messages": messages}, timeout=30)
+        r.raise_for_status()
+        return r.json()["prompt"]
+
     def stream_chat(self, messages: List[dict], max_tokens: int) -> Iterator[dict]:
         """Stream a chat reply from the big model, formatted with its chat template.
 
@@ -279,7 +286,10 @@ class LocalMoEEngine:
         self.draft = Llama(
             model_path=paths.draft_model_gguf,
             n_ctx=rt.n_ctx,
-            n_gpu_layers=-1,  # draft model is tiny, load it fully on GPU
+            # Requests full GPU offload, but the installed llama-cpp-python is a
+            # CPU-only build (llama_cpp.llama_supports_gpu_offload() is False),
+            # so this is ignored: the draft runs on the CPU and uses no VRAM.
+            n_gpu_layers=-1,
             verbose=False,
         )
         self.big = BigModelServer(paths, rt)
@@ -357,16 +367,34 @@ class LocalMoEEngine:
 
     def generate_fast(self, prompt_tokens: List[int], max_tokens: int = 256) -> List[int]:
         """Fast path for 'quick'-bucket prompts: the draft model answers entirely on
-        its own, no big model involved at all. Fully GPU-resident and not subject to
+        its own, no big model involved at all. (It runs on the CPU -- llama-cpp-python
+        here has no GPU support -- so its latency grows with conversation length;
+        app.py caps that with Runtime.quick_max_prompt_tokens.) Not subject to
         the big model's CPU-bound MoE expert bottleneck -- this is where the draft
         model's own speed is actually worth something, unlike speculative decoding
         (see generate()'s docstring / BENCHMARK_RESULTS.md for why that path doesn't
         pay off on this hardware). Pair with verify_fast_answer() to catch and
         correct wrong answers and keep training signal flowing."""
-        text = self.draft.detokenize(prompt_tokens).decode("utf-8", "ignore")
-        out = self.draft(prompt=text, max_tokens=max_tokens, temperature=0.0)
+        # Token ids go straight in. The old detokenize -> text -> re-tokenize round
+        # trip dropped special tokens (detokenize omits <|im_start|> etc. by
+        # default), so a chat-templated prompt arrived as bare text.
+        out = self.draft(prompt=list(prompt_tokens), max_tokens=max_tokens, temperature=0.0)
         completion_text = out["choices"][0]["text"]
         return self.draft.tokenize(completion_text.encode("utf-8"), add_bos=False)
+
+    def chat_prompt_tokens(self, messages: List[dict]) -> List[int]:
+        """The conversation as token ids, formatted with the 30B's chat template.
+
+        Both sides of the quick path use exactly these ids: the draft answers from
+        them and verify_fast_answer replays that answer against the 30B from them.
+        So the draft learns to predict what the 30B says in a real chat, and the
+        check compares like with like. The template is the 30B's, rendered by its
+        own server, not the draft's: the draft's (Qwen2.5) template injects a
+        default system prompt the 30B never sees. Qwen2.5 and Qwen3 share these
+        token ids, including <|im_start|>/<|im_end|>.
+        """
+        text = self.big.apply_template(messages)
+        return self.draft.tokenize(text.encode("utf-8"), add_bos=False, special=True)
 
     def verify_fast_answer(self, prompt_tokens: List[int], draft_tokens: List[int], max_tokens: int):
         """Background quality check for a fast-path answer already shown to the
@@ -381,6 +409,13 @@ class LocalMoEEngine:
         onward replaced by the big model's own (real, not speculative) completion.
         """
         context = list(prompt_tokens)
+        if not draft_tokens:
+            # Nothing to check, so the loop below would return "confirmed, 0/0" and
+            # the app would show a blank reply as verified. Seen with raw
+            # (un-templated) prompts in experiments/quick_path_template.py. The 30B
+            # answers instead.
+            tail = self.big.complete_greedy(context, max_tokens)
+            return 0, 0, self.draft.tokenize(tail.get("content", "").encode("utf-8"), add_bos=False)
         agree = 0
         checked = 0
         i = 0

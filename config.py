@@ -74,9 +74,9 @@ class Runtime:
     #
     # This is the FASTEST value to try, not a guarantee it fits. At 20 there is
     # only ~700 MiB of headroom on an otherwise empty card, and a normal desktop
-    # takes that away: Firefox alone held 456 MiB during testing, and
-    # LocalMoEEngine loads its draft model onto the GPU (~600 MiB) *before* the
-    # big model starts. Either one makes 20 fail to allocate.
+    # takes that away: Firefox alone held 456 MiB during testing, which made 20
+    # fail to allocate. (The in-process draft model does NOT use VRAM: the
+    # installed llama-cpp-python is a CPU-only build.)
     #
     # So BigModelServer treats this as a starting point: if llama-server fails to
     # load, crashes on a ~700-token warm-up prompt, or leaves less than
@@ -93,10 +93,23 @@ class Runtime:
     # (81.1 vs 78.3, experiments/runtime_knob_sweep.py). A second concurrent
     # request would wait for the first instead of sharing the GPU.
     server_slots: int = 1
-    # Free VRAM to keep after the big model loads. Covers a draft hot-swap in
-    # LocalMoEEngine.reload_draft (old and new draft briefly both on the GPU) and
-    # a browser tab opened later. 0 = pack the card as tightly as it will load.
+    # Free VRAM to keep after the big model loads, as a margin for other programs
+    # (a browser, another model server). 0 = pack the card as tightly as it will
+    # load. This margin, not the draft model, is why the app fits split 23
+    # (~71 tok/s) rather than 20-21 (~80): 20-22 leave less than 768 MiB free.
+    # Whether a running server actually needs it -- i.e. whether it allocates
+    # more VRAM after the warm-up -- is unmeasured; see PLAN.md.
     vram_headroom_mb: int = 768
+    # Longest chat-templated prompt (conversation so far + message, in tokens) the
+    # quick path will take. Longer conversations go to the 30B instead.
+    # The draft runs in llama-cpp-python, which here is a CPU-only build, and it
+    # re-reads the whole conversation before answering: in the running app a
+    # history-dependent quick question came back at 2 tok/s, ~15 s, while the
+    # 30B starts streaming in under a second and caches the conversation between
+    # turns. 512 is the draft's batch size; up to ~528 tokens it answered in
+    # 0.3-0.9 s in the cleanest measurement. Timings above that were erratic
+    # because the machine was swapping, so re-measure before raising this.
+    quick_max_prompt_tokens: int = 512
     # Online draft-model training
     # Where the trainer's copy of the draft model lives: "cuda" or "cpu".
     # app.py builds the trainer BEFORE the big model starts, so on "cuda" its

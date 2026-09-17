@@ -87,7 +87,8 @@ def run_inference(message: str, max_tokens: float, history):
     doesn't reduce. So this no longer calls it for live traffic at all.
 
     Instead: 'quick'-bucket prompts get answered entirely by the draft model
-    (GPU-resident, not subject to that bottleneck -- genuinely fast), shown
+    (a 0.5B model on the CPU -- fast for short conversations; longer ones go to
+    the 30B, see Runtime.quick_max_prompt_tokens), shown
     immediately, then checked against the big model in the background within
     this same generator call. If they disagree, the displayed answer is
     corrected and the mismatch is queued for training -- this is where the
@@ -101,10 +102,27 @@ def run_inference(message: str, max_tokens: float, history):
         return
 
     bucket = prompt_bucket(message)
-    prompt_tokens = engine.draft.tokenize(message.encode("utf-8"))
     max_tokens_i = int(max_tokens)
+    # The conversation so far plus this message, as both paths send it to a model.
+    model_messages = [m for m in (_as_model_message(h) for h in (history or [])) if m]
+    model_messages.append({"role": "user", "content": message})
 
+    quick_prompt_tokens = None
     if bucket == "quick":
+        # Chat-templated with the 30B's template, and the SAME ids go to both the
+        # draft and the 30B's check. The raw message used to go in as bare text:
+        # the draft answered "What is 17 times 24?" with "To solve this problem, we
+        # can use Python...", and token agreement with the 30B was 58% vs 82%
+        # templated (experiments/quick_path_template.py).
+        quick_prompt_tokens = engine.chat_prompt_tokens(model_messages)
+        if len(quick_prompt_tokens) > rt.quick_max_prompt_tokens:
+            # Long conversation: the CPU-only draft would be slower than the 30B.
+            # See Runtime.quick_max_prompt_tokens.
+            bucket = "quick->30B (long conversation)"
+            quick_prompt_tokens = None
+
+    if quick_prompt_tokens is not None:
+        prompt_tokens = quick_prompt_tokens
         start = time.perf_counter()
         fast_tokens = engine.generate_fast(list(prompt_tokens), max_tokens=max_tokens_i)
         fast_elapsed = time.perf_counter() - start
@@ -160,7 +178,6 @@ def run_inference(message: str, max_tokens: float, history):
         {"role": "user", "content": message},
         {"role": "assistant", "content": ""},
     ]
-    model_messages = [m for m in (_as_model_message(h) for h in all_messages[:-1]) if m]
     route_head = f"### Route decision\n* Bucket: `{bucket}` (big model, no speculative overhead)\n"
     gpu_text, train_text = gpu_telemetry(), trainer_panel()
     yield all_messages, route_head + "* Generating...", gpu_text, train_text
