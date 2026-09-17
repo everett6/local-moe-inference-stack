@@ -112,6 +112,42 @@ VRAM from the 30B's experts); or send everything to the 30B and keep the draft
 only as a training target. Measure how often quick answers are *actually*
 wrong, then choose.
 
+### 2b. Expert caching / predictive prefetching: the biggest remaining lever (large project)
+
+`experiments/expert_cache_sim.py` simulates it on the recorded expert traces,
+using two measured facts:
+- Decode time is linear in CPU-side expert layers: **0.321 ms per layer**,
+  **5.88 ms floor** with every expert on the GPU (~170 tok/s, R² = 0.999). That
+  floor is the ceiling for any offloading scheme.
+- Fetching one expert over PCIe (0.057 ms) costs **more** than computing it on
+  the CPU for one token (0.040 ms). So only experts already in VRAM help, and
+  misses should be computed on the CPU, not fetched on demand.
+
+Spending today's VRAM (3,200 expert slots) as a per-layer cache of 66 experts,
+instead of 25 whole layers:
+
+| policy | hit rate | est. tok/s (pessimistic-optimistic) |
+|---|---|---|
+| today, whole layers | n/a | 75 |
+| fixed most-used experts | 82% | 64-116 |
+| LRU cache | 94% | 89-147 |
+| LRU pre-filled with most-used | 96% | **98-153 (1.3-2.0x)** |
+| perfect prediction | 100% | 170 (2.3x) |
+
+Caveats: 5 test prompts / 1,065 tokens; a fresh cache per prompt (a long chat
+would do better); the real cost of a CPU hop for a layer with a few misses is
+unmeasured, which is what the pessimistic-optimistic range spans.
+
+Cost: llama.cpp keeps a layer's 128 experts in one tensor and has no expert
+cache, so this means changing its MoE graph (GPU cache tensor + id remap, CPU
+fallback for misses, async cache updates) and building it with CUDA, which needs
+the CUDA toolkit installed (not on this machine). Check whether an existing
+engine already does this for Qwen3-MoE before building one.
+
+A cheaper, unmeasured idea first: LM Studio only ships `avx2` llama.cpp builds,
+and the 7950X has AVX-512. The CPU-side expert layers are ~55% of each token's
+time, so a faster CPU backend could help without any engine redesign.
+
 ### 3. Math renders as raw brackets (small)
 
 The 30B writes LaTeX as `\[ … \]`, and the chat shows it as `[ 17 \times 24 = 408 ]`.
