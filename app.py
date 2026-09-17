@@ -11,6 +11,7 @@ from typing import Optional
 
 import gradio as gr
 import psutil
+import requests
 
 try:
     import pynvml
@@ -18,7 +19,7 @@ except Exception:
     pynvml = None
 
 from config import Paths, Runtime
-from local_engine import LocalMoEEngine
+from local_engine import LocalMoEEngine, ServerUnavailable
 from draft_trainer import OnlineDraftTrainer
 from router import prompt_bucket
 
@@ -81,6 +82,27 @@ def trainer_panel() -> str:
 
 
 def run_inference(message: str, max_tokens: float, history):
+    """Serve one message (see _run_inference), and if the model server fails
+    partway, say so in the chat instead of leaving a half reply and a traceback in
+    the terminal. The GPU dropping off the PCIe bus mid-reply killed llama-server
+    this way once (kernel Xid 79)."""
+    last = None
+    try:
+        for last in _run_inference(message, max_tokens, history):
+            yield last
+    except (ServerUnavailable, requests.exceptions.RequestException) as e:
+        messages = list(last[0]) if last else list(history or []) + [{"role": "user", "content": message}]
+        if messages and messages[-1].get("role") == "assistant":
+            partial = messages[-1].get("content") or ""
+            messages[-1] = {"role": "assistant", "content": (partial + "\n\n" if partial else "") +
+                            "**[The model server failed, so this reply is incomplete.]**"}
+        else:
+            messages.append({"role": "assistant", "content": "**[The model server failed before replying.]**"})
+        route_text = f"### Route decision\n* **Error:**\n```\n{e}\n```"
+        yield messages, route_text, gpu_telemetry(), trainer_panel()
+
+
+def _run_inference(message: str, max_tokens: float, history):
     """Routing rewrite: speculative decoding (engine.generate) measured 4x slower
     than doing nothing on this hardware (see BENCHMARK_RESULTS.md) because the
     bottleneck is CPU-bound big-model MoE compute, which verifying draft tokens

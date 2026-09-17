@@ -20,20 +20,30 @@ _AI2_DIR = os.path.dirname(os.path.abspath(__file__))
 # Which quantization of Qwen3-30B-A3B-Instruct-2507 the app serves, and the
 # --n-cpu-moe split BigModelServer starts fitting from. Pick with the AI2_BIG_MODEL
 # environment variable. Measured on this box (RTX 5070 12 GB, desktop running),
-# decode through the app's own launch path, quality vs Q4_K_M:
+# through the app's own launch path and request settings:
 #
-#   name        file      decode    mean KLD  same top token  GSM8K/50
-#   q4_k_m      17.3 GiB   76 tok/s   0        100%            50
-#   ud-q3_k_xl  12.9 GiB  103         0.044     90.3%          49
-#   iq3_xxs     11.4 GiB  113         0.076     87.2%          48
-#   q2_k        10.2 GiB  ~188        0.098     86.2%          47
+#   name        file      split  decode     mean KLD  same top  HumanEval  GSM8K/250
+#   q4_k_m      17.3 GiB  22     82 tok/s   0         100%      150/164    239
+#   ud-q3_k_xl  12.9 GiB  13     115        0.044     90.3%     151/164    241
+#   iq3_xxs     11.4 GiB  10-11  113*       0.076     87.2%     -          -
+#   q2_k        10.2 GiB  2-3    ~189       0.098     86.2%     (crashed)  (47-49/50)
+#   (decode: mixed HumanEval + GSM8K workload, model_quality_eval.py; *older run
+#    with repeat_penalty 1.1. KLD and same-top-token vs Q4_K_M's logits, quant_kld.sh.)
 #
-# q2_k is the default because it is the one that reaches 2x: at 10.2 GiB nearly
-# all experts fit in VRAM (split 2-3 of 48). It is a real, measured quality cost,
-# mostly visible as the model talking itself in circles on harder word problems.
-# `AI2_BIG_MODEL=q4_k_m python3 app.py` gets the old model back. The smaller
-# files come from tools/download_quants.py (sha256-verified). Sources:
-# experiments/quant_speed_quality.py, quant_kld.sh, q2k_split_floor.py.
+# Default: ud-q3_k_xl. It is 1.39x Q4_K_M with no measurable quality loss on 414
+# graded problems (McNemar p = 1.0 HumanEval, 0.63 GSM8K), and a smaller file.
+#
+# q2_k is the only one that reaches 2x, but it is not the default yet, for two
+# reasons. (1) It has twice ud-q3_k_xl's drift from Q4_K_M, and its HumanEval +
+# GSM8K-250 run never finished, so the rule set before that run (within 5 points
+# of Q4_K_M on both) is unmet, not failed. (2) 2-3 minutes into that run, at
+# split 2 (the heaviest sustained GPU load of any test), the GPU dropped off the
+# PCIe bus: kernel "NVRM: Xid 79, GPU has fallen off the bus", then "Xid 154, Node
+# Reboot Required". One event, cause unproven (Xid 79 is usually power delivery,
+# PCIe signal integrity or heat), but it happened under exactly this load. PLAN.md
+# has the soak test that decides it. `AI2_BIG_MODEL=q2_k python3 app.py` to use it
+# anyway; `q4_k_m` for the original. The smaller files come from
+# tools/download_quants.py (sha256-verified).
 _QUANTS = os.path.join(_AI2_DIR, "models", "quants")
 _Q4_K_M = "/home/everett/.lmstudio/models/lmstudio-community/Qwen3-30B-A3B-Instruct-2507-GGUF/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf"
 BIG_MODELS = {
@@ -42,7 +52,7 @@ BIG_MODELS = {
     "iq3_xxs": (os.path.join(_QUANTS, "Qwen_Qwen3-30B-A3B-Instruct-2507-IQ3_XXS.gguf"), 8),
     "q2_k": (os.path.join(_QUANTS, "Qwen_Qwen3-30B-A3B-Instruct-2507-Q2_K.gguf"), 0),
 }
-BIG_MODEL = os.environ.get("AI2_BIG_MODEL", "q2_k").lower()
+BIG_MODEL = os.environ.get("AI2_BIG_MODEL", "ud-q3_k_xl").lower()
 if BIG_MODEL not in BIG_MODELS:
     raise ValueError(f"AI2_BIG_MODEL={BIG_MODEL!r}; choose one of {', '.join(BIG_MODELS)}")
 if not os.path.exists(BIG_MODELS[BIG_MODEL][0]):
@@ -135,10 +145,10 @@ class Runtime:
     # VRAM after a 2,950-token prompt + 512 generated tokens matched free VRAM
     # after the warm-up to within 2 MiB at every split, even with 126 MiB left --
     # llama-server reserves KV cache and compute buffers up front, and the warm-up
-    # triggers the one lazy allocation (cuBLAS). A program that later wants VRAM
-    # the server holds gets the out-of-memory error, not the server
-    # (experiments/vram_contention.py). So this is purely for the desktop and
-    # browser, which hold ~700 MiB here and grow when a page uses the GPU.
+    # triggers the one lazy allocation (cuBLAS). So the margin is for the desktop
+    # and browser, which hold ~700 MiB here and grow when a page uses the GPU.
+    # (What happens to a running server when another program takes the rest is
+    # experiments/vram_contention.py, written but not yet run: see PLAN.md.)
     # Was 768. Each Q2_K layer of experts is ~200 MiB and ~0.2 ms/token in RAM, so
     # 512 costs Q2_K about one layer versus 256 (split 3 with 542 MiB free, vs
     # split 2 with 334), ~2-3% decode, and keeps room for a few browser tabs.

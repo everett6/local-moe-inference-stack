@@ -5,13 +5,32 @@ hardware, driving `llama.cpp`'s `llama-server` directly from Python. No LM
 Studio app, no cloud.
 
 **Built for:** RTX 5070 (12 GB VRAM), Ryzen 9 7950X, 32 GB RAM.
-**Model:** Qwen3-30B-A3B-Instruct-2507, Q4_K_M.
+**Model:** Qwen3-30B-A3B-Instruct-2507, **UD-Q3_K_XL** by default (choose with
+`AI2_BIG_MODEL`, see below).
 
-**Speed:** ~71 tok/s in the app as it starts, up from 47 with the original
-config. About 82 tok/s is the ceiling with nothing else on the card.
+**Speed:** ~115 tok/s with no measurable accuracy loss (HumanEval 151/164 and
+GSM8K 241/250, vs 150 and 239 for Q4_K_M at 82 tok/s), up from 47 with the
+original config. Q2_K reaches ~189 tok/s but is opt-in until it passes a GPU soak
+test and its accuracy run (the GPU dropped off the PCIe bus under its load once).
 
 > **Start here:** [`PLAN.md`](PLAN.md): current state, what's settled, and the
 > prioritized next steps.
+
+## Choosing the model file
+
+Same model, different quantization. Measured on this box through the app's own
+launch path; details and sources in `config.BIG_MODELS` and `PLAN.md`.
+
+| `AI2_BIG_MODEL` | file | decode tok/s | vs Q4_K_M: KL divergence / HumanEval / GSM8K |
+|---|---|---|---|
+| `q4_k_m` | 17.3 GiB | 82 | reference: 150/164, 239/250 |
+| `ud-q3_k_xl` (default) | 12.9 GiB | 115 | 0.044 / 151/164 / 241/250 |
+| `iq3_xxs` | 11.4 GiB | ~113 | 0.076 / - / - |
+| `q2_k` | 10.2 GiB | ~189 | 0.098 / not finished / 47-49 of 50 |
+
+The three smaller files come from `python3 tools/download_quants.py` (Hugging Face,
+sha256-verified, 44 GB total with UD-IQ2_XXS). If the chosen file is missing the app
+falls back to Q4_K_M.
 
 ## How it works
 
@@ -29,6 +48,12 @@ leaves less than `vram_headroom_mb` free, or crashes on a ~700-token warm-up
 prompt, it restarts with `n_cpu_moe_step` more layers in RAM. That warm-up
 matters: CUDA allocates part of its memory only on the first real prompt, so a
 server can load fine and still crash on your first message.
+
+If CUDA doesn't come up at all (e.g. after the GPU drops off the PCIe bus),
+llama-server would quietly run on the CPU; `BigModelServer` refuses that and
+raises `ServerUnavailable` with what to do. If the server dies mid-reply, the chat
+marks the reply incomplete and shows the error. Covered by
+`python3 tests/test_server_failures.py`.
 
 (The original config pinned **every** expert to RAM with `-ot`, leaving 10 GB of
 the card empty: 47 tok/s. See `SPEC_DECODING.md` §5.)
@@ -59,7 +84,7 @@ restart.
 
 It runs **on the CPU with 4 threads** by default (`trainer_device`,
 `trainer_cpu_threads`). On the GPU it takes VRAM from the 30B's experts on every
-reply (~62 vs ~71 tok/s). With all CPU cores, it slows replies to 27-43 tok/s
+reply (~62 vs ~71 tok/s, measured with Q4_K_M). With all CPU cores, it slows replies to 27-43 tok/s
 while a training step runs.
 
 ## Setup
@@ -71,7 +96,7 @@ while a training step runs.
    refresh.
 2. `pip install -r requirements.txt`
 3. In `config.py`, set:
-   - `big_model_gguf`: the 30B model.
+   - `BIG_MODELS`: paths to the 30B model files (or just set `AI2_BIG_MODEL`).
    - `draft_model_gguf`: the small GGUF draft used by the quick path.
    - `draft_model_hf`: the same draft in `transformers` format. This is the
      trainable copy, because you can't backprop through a quantized GGUF.
@@ -81,9 +106,10 @@ while a training step runs.
 
 | setting | default | what it does |
 |---|---|---|
-| `n_cpu_moe` | 20 | fastest split to *try*; launch backs off from here |
+| `n_cpu_moe` | per model (12 for UD-Q3_K_XL) | fastest split to *try*; launch backs off from here |
 | `n_cpu_moe_step` | 1 | layers moved to RAM per failed attempt |
-| `vram_headroom_mb` | 768 | free VRAM to keep after load, for other programs; costs ~9 tok/s (split 23 vs 20-21) |
+| `vram_headroom_mb` | 512 | free VRAM to leave for other programs; the server itself allocates nothing after warm-up |
+| `repeat_penalty` | 1.0 | off: 1.1 cost 6% at ~190 tok/s and skewed the quick path's check (the draft samples at 1.0) |
 | `quick_max_prompt_tokens` | 512 | longer conversations skip the CPU draft and go to the 30B |
 | `server_slots` | 1 | llama-server parallel slots; 1 is +2.8 tok/s for a single user |
 | `trainer_device` | `cpu` | where the trainer's model lives |

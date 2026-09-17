@@ -41,6 +41,18 @@ from config import Paths, Runtime
 _WARMUP_PROMPT = " ".join(f"item {i}: the quick brown fox jumps over the lazy dog." for i in range(64))
 
 
+# What llama-server logs when CUDA doesn't come up. It then keeps going on the CPU
+# ("--gpu-layers option will be ignored"): every split "fits", so the launch
+# fitting would report success and the app would serve at a small fraction of its
+# speed with no error anywhere. Seen after the GPU dropped off the PCIe bus
+# (kernel: "NVRM: Xid 79, GPU has fallen off the bus").
+_NO_GPU_MARKERS = ("failed to initialize CUDA", "no usable GPU found")
+
+
+class ServerUnavailable(RuntimeError):
+    """The big-model server can't serve: no usable GPU, or it died mid-request."""
+
+
 def _gpu_free_mb() -> Optional[int]:
     """Free VRAM on GPU 0, or None if nvidia-smi isn't available (check skipped)."""
     try:
@@ -155,9 +167,34 @@ class BigModelServer:
             return "no_headroom"
         return "ok"
 
+    def _log_tail(self, n: int = 12) -> str:
+        try:
+            with open(self.log_path, errors="replace") as f:
+                return "".join(f.readlines()[-n:])
+        except OSError:
+            return ""
+
+    def _check_gpu_came_up(self):
+        """Raise ServerUnavailable if llama-server says CUDA didn't initialize.
+        Not a split problem, so retrying with more layers on the CPU can't help."""
+        try:
+            with open(self.log_path, errors="replace") as f:
+                head = f.read(20000)
+        except OSError:
+            return
+        if any(m in head for m in _NO_GPU_MARKERS):
+            self.stop()
+            raise ServerUnavailable(
+                "llama-server found no usable GPU and would run on the CPU only "
+                f"(see {self.log_path}). Check `nvidia-smi`. If `journalctl -k` shows "
+                "'GPU has fallen off the bus' (Xid 79), the GPU needs a reboot, ideally a "
+                "full power-off, before it can be used again."
+            )
+
     def _wait_for_ready(self, timeout: float = 300.0) -> bool:
         start = time.time()
         while time.time() - start < timeout:
+            self._check_gpu_came_up()
             # llama-server exits on a failed allocation instead of hanging, so a
             # dead process means "doesn't fit" -- no need to sit out the timeout.
             if self.proc.poll() is not None:
@@ -230,35 +267,45 @@ class BigModelServer:
         Sampling matches complete_greedy (greedy, Runtime.repeat_penalty), so this
         changes the formatting and delivery of replies, not how tokens are chosen.
         """
-        r = requests.post(
-            f"{self.base_url}/v1/chat/completions",
-            json={"messages": messages, "max_tokens": max_tokens, "stream": True,
-                  "temperature": 0.0, "repeat_penalty": self.rt.repeat_penalty, "cache_prompt": True,
-                  "timings_per_token": False},
-            stream=True,
-            timeout=600,
-        )
-        r.raise_for_status()
         timings = None
-        # Decode as UTF-8 explicitly. llama-server's text/event-stream response
-        # declares no charset, so requests falls back to ISO-8859-1 and every
-        # non-ASCII character arrives garbled ("—" became "â\x80\x94"). Splitting
-        # the raw bytes on newlines first is safe: UTF-8 never uses 0x0A inside
-        # a multi-byte character.
-        for raw_bytes in r.iter_lines():
-            raw = raw_bytes.decode("utf-8")
-            if not raw.startswith("data: "):
-                continue
-            payload = raw[len("data: "):]
-            if payload == "[DONE]":
-                break
-            chunk = json.loads(payload)
-            if chunk.get("timings"):
-                timings = chunk["timings"]
-            for choice in chunk.get("choices", []):
-                text = (choice.get("delta") or {}).get("content")
-                if text:
-                    yield {"delta": text}
+        try:
+            r = requests.post(
+                f"{self.base_url}/v1/chat/completions",
+                json={"messages": messages, "max_tokens": max_tokens, "stream": True,
+                      "temperature": 0.0, "repeat_penalty": self.rt.repeat_penalty, "cache_prompt": True,
+                      "timings_per_token": False},
+                stream=True,
+                timeout=600,
+            )
+            r.raise_for_status()
+            # Decode as UTF-8 explicitly. llama-server's text/event-stream response
+            # declares no charset, so requests falls back to ISO-8859-1 and every
+            # non-ASCII character arrives garbled ("—" became "â\x80\x94"). Splitting
+            # the raw bytes on newlines first is safe: UTF-8 never uses 0x0A inside
+            # a multi-byte character.
+            for raw_bytes in r.iter_lines():
+                raw = raw_bytes.decode("utf-8")
+                if not raw.startswith("data: "):
+                    continue
+                payload = raw[len("data: "):]
+                if payload == "[DONE]":
+                    break
+                chunk = json.loads(payload)
+                if chunk.get("timings"):
+                    timings = chunk["timings"]
+                for choice in chunk.get("choices", []):
+                    text = (choice.get("delta") or {}).get("content")
+                    if text:
+                        yield {"delta": text}
+        except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
+            # The server went away mid-reply. Seen when the GPU dropped off the PCIe
+            # bus under sustained load: the process died and the stream just ended
+            # ("Response ended prematurely"), which surfaced as a bare traceback.
+            alive = self.proc is not None and self.proc.poll() is None
+            raise ServerUnavailable(
+                f"llama-server {'stopped responding' if alive else 'exited'} during the reply "
+                f"({type(e).__name__}). Last lines of {self.log_path}:\n{self._log_tail()}"
+            ) from e
         yield {"timings": timings or {}}
 
     def stop(self):

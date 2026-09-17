@@ -1,110 +1,155 @@
 # AI2: where things stand, and what to do next
 
-*Updated 2026-09-16. For the history of how we got here, see
+*Updated 2026-09-17. For the history of how we got here, see
 [`EXECUTIVE_SUMMARY.md`](EXECUTIVE_SUMMARY.md) (earlier sessions) and
 [`SPEC_DECODING.md`](SPEC_DECODING.md) (this one).*
 
+> **First thing after this session:** the GPU dropped off the PCIe bus at
+> 00:41 on 2026-09-17 (kernel `NVRM: Xid 79, GPU has fallen off the bus`, then
+> `Xid 154, Node Reboot Required`). Nothing on the GPU works until the machine is
+> **fully powered off and on** (a warm reboot sometimes doesn't bring a card back
+> from Xid 79). The app now refuses to start in that state instead of silently
+> running on the CPU. See "The GPU crash" below.
+
 ## Where things stand
 
-**Hardware:** RTX 5070 (12 GB), Ryzen 9 7950X (16 cores), 32 GB RAM.
-**Model:** Qwen3-30B-A3B-Instruct-2507, Q4_K_M in the last commit, Q2_K in progress, served by LM Studio's bundled
-`llama-server`.
+**Hardware:** RTX 5070 (12 GB, PCIe 5.0 x16), Ryzen 9 7950X (16 cores, 2 CCDs),
+32 GB RAM. **Model:** Qwen3-30B-A3B-Instruct-2507, served by LM Studio's bundled
+`llama-server`. Default quantization **UD-Q3_K_XL**; pick another with
+`AI2_BIG_MODEL` (`q4_k_m`, `ud-q3_k_xl`, `iq3_xxs`, `q2_k`).
 
 ### Speed
 
-| setup | decode tok/s | vs original |
-|---|---|---|
-| Original config (every MoE expert in RAM, Q4_K_M) | 47 | 1.0x |
-| App at the start of this plan (Q4_K_M, split 23-24) | ~76 | 1.6x |
-| **Q2_K, app request path, split 3** (uncommitted, see plan below) | **~189** | **4.0x** |
-| Q2_K, every expert on the GPU (bare server, KV q8_0) | 198 | 4.2x |
+| setup | decode tok/s | vs original | quality vs Q4_K_M |
+|---|---|---|---|
+| Original config (every MoE expert in RAM, Q4_K_M) | 47 | 1.0x | reference |
+| Q4_K_M, fitted split + this session's settings | 82 | 1.7x | reference |
+| **UD-Q3_K_XL (default)** | **115** | **2.4x** | no measurable loss |
+| Q2_K (`AI2_BIG_MODEL=q2_k`) | ~189 | 4.0x | 2x UD-Q3_K_XL's drift; accuracy unfinished |
 
-Against the Q4_K_M app (~76) Q2_K is **2.5x**; against the 90 tok/s baseline
-you gave, 2.1x.
+"Decode" for Q4_K_M and UD-Q3_K_XL is averaged over 414 real replies (HumanEval +
+GSM8K, `model_quality_eval.py`); Q2_K's is the app request path on short prompts
+(`penalty_quality.py`, `request_overhead_ab.py`). Against the 90 tok/s baseline
+you gave, UD-Q3_K_XL is 1.28x and Q2_K 2.1x.
 
-## Current plan: 2x decode with Q2_K, without losing measurable quality
+## Plan 1 (this session): 2x decode without losing measurable quality
 
-**Why this route.** Every runtime lever at Q4_K_M was measured and none gets
-near 2x (sections below). Decode is linear in how many layers of experts sit in
-RAM, and a 17.3 GiB model leaves ~23 of 48 there. Smaller files fit more on the
-card, at a quality cost, so both were measured.
+**Why smaller quantizations.** Every runtime lever at Q4_K_M was measured and
+none gets near 2x (sections below). Decode is linear in how many layers of experts
+sit in RAM, and a 17.3 GiB model leaves ~23 of 48 there. Smaller files fit more
+on the card, at a quality cost, so both were measured.
 
-**Measured so far** (all on this box, desktop running):
+| file | size | split | decode | mean KLD | same top token | HumanEval | GSM8K |
+|---|---|---|---|---|---|---|---|
+| Q4_K_M | 17.3 GiB | 22 | 82 | 0 | 100% | 150/164 (91.5%) | 239/250 (95.6%) |
+| **UD-Q3_K_XL** | 12.9 GiB | 13 | 115 | 0.044 | 90.3% | **151/164 (92.1%)** | **241/250 (96.4%)** |
+| IQ3_XXS | 11.4 GiB | 10-11 | 113* | 0.076 | 87.2% | - | 48/50 |
+| Q2_K | 10.2 GiB | 2-3 | ~189 | 0.098 | 86.2% | crashed | 47-49/50 |
+| UD-IQ2_XXS | 9.6 GiB | 2-4 | 147* | 0.093 | 86.4% | - | 47/50 |
 
-| file | size | split | decode (app path) | mean KLD | same top token | GSM8K/50 |
-|---|---|---|---|---|---|---|
-| Q4_K_M (today) | 17.3 GiB | 23-24 | 76 | 0 | 100% | 50 |
-| UD-Q3_K_XL | 12.9 GiB | 14-15 | 103 | 0.044 | 90.3% | 49 |
-| IQ3_XXS | 11.4 GiB | 10-11 | 113 | 0.076 | 87.2% | 48 |
-| **Q2_K** | 10.2 GiB | 5-6 | 160 (penalty 1.1, 768 MiB margin) | 0.098 | 86.2% | 47-49 |
-| UD-IQ2_XXS | 9.6 GiB | 2-4 | 147 | 0.093 | 86.4% | 47 |
+\* older runs with repeat_penalty 1.1 and a 768 MiB margin, which cost ~6% and a
+layer or two. HumanEval: all 164 problems, the reply's code run against the
+problem's own tests under bubblewrap (read-only filesystem, no network). GSM8K:
+first 250 test questions. Paired against Q4_K_M, UD-Q3_K_XL lost 3 and gained 4
+HumanEval problems (McNemar p = 1.0) and lost 1, gained 3 GSM8K (p = 0.63).
 
-- UD-IQ2_XXS is smaller but slower than Q2_K: its i-quant GPU kernels cost
-  more than the extra layers on the GPU save. Q2_K is the only file that
-  reaches 2x.
-- GSM8K was first scored 43-46/50 because the grader took the last number in
-  the reply ("$26.00" failed against "26"; "45 miles … in 4 hours" read as 4).
-  Fixed; the table uses the fixed grader. Remaining misses are mostly the same
-  two hard questions, where smaller models talk in circles until the token limit.
-- **Request path overhead** (`experiments/request_overhead_ab.py`, Q2_K split 3):
-  streaming costs nothing; `repeat_penalty 1.1` costs 6% (189.5 → 177.5). GPU
-  sampling (`--backend-sampling`) makes the penalty nearly free but is 2% slower
-  than no penalty.
-- **The penalty was also a bug.** The quick path compares the draft's greedy
-  tokens with the 30B's token for token, but the draft samples at 1.0 and the 30B
-  at 1.1, so some "corrections" and training examples came from the setting, not
-  the draft. With penalty 1.0: no repetition loops on Q2_K (0 of 62 replies,
-  same as 1.1), GSM8K 48 vs 49, 188.6 vs 177.0 tok/s.
-- **Split floor** (`experiments/q2k_split_floor.py`, bare server): Q2_K gains
-  ~0.19 ms/token per layer moved to the GPU: split 6 172.8, 4 184.7, 3 189.7,
-  1 200.7 tok/s. Split 0 with an f16 KV cache loads, then crashes on the first
-  prompt. KV q8_0 makes split 0 fit (198.2) but costs ~10 tok/s at any given
-  split, so f16 stays.
-- **The VRAM margin isn't protecting the server.** Free VRAM after a
-  2,950-token prompt + 512 generated tokens matched free VRAM after warm-up to
-  within 2 MiB at every split, even with 126 MiB left. Margin cut 768 → 512 MiB
-  (Q2_K lands on split 3).
+### Steps 1-6: what happened
 
-**Made so far (uncommitted):** `config.BIG_MODELS` + `AI2_BIG_MODEL` env var
-(default `q2_k`, falls back to Q4_K_M if the file is missing),
-`Runtime.repeat_penalty = 1.0` for every 30B request, `vram_headroom_mb = 512`,
-the fixed GSM8K grader.
+1. **Repeat penalty 1.1 → 1.0: done, safe on both models.** It cost 6% of decode
+   (`request_overhead_ab.py`; streaming costs nothing) and it was a bug: the quick
+   path compares the draft's greedy tokens with the 30B's, but the draft samples
+   at 1.0, so some "corrections" and training examples came from the setting,
+   not the draft. At 1.0: no repetition loops (0 of 62 replies per model), GSM8K
+   48 vs 49 (Q2_K) and 50 vs 50 (Q4_K_M), decode +6.5% (Q2_K) and +3% (Q4_K_M).
+2. **Code and math quality: done for Q4_K_M and UD-Q3_K_XL, not for Q2_K.** The
+   first grader failed correct answers ("$26.00" vs "26") and was fixed. The
+   code test was upgraded from "does it parse" to HumanEval, which runs the code.
+   **Q2_K's run is where the GPU crashed**, 2-3 minutes in.
+3. **VRAM contention: not run** (GPU crash). What is known: llama-server
+   allocates nothing after its warm-up, even through a 2,950-token prompt, so
+   the margin was cut 768 → 512 MiB.
+4. **CPU threads / L3-cache pinning / CUDA graphs / ubatch: not run** (GPU crash).
+   `experiments/cpu_gpu_knobs.py` is ready. Already checked: CPU governor is
+   `performance`, PCIe link is 5.0 x16, and custom expert placement can't help
+   (`--n-cpu-moe` already moves the largest Q2_K layers, 0-5, first).
+5. **End-to-end in the real app: not run** (GPU crash).
+   `experiments/quick_path_penalty.py` (quick-path correction rate at 1.1 vs 1.0)
+   is ready.
+6. **Shipped** what was verified (below).
 
-**Remaining steps, in order:**
+### The GPU crash, and what changed because of it
 
-1. **Finish the penalty check on Q4_K_M** (running). Confirms 1.0 is safe for
-   both models, not only Q2_K.
-2. **Code quality, Q2_K vs Q4_K_M.** GSM8K doesn't cover code, the main use of
-   this box. The first code test capped replies at 1,024 tokens and most "write a
-   complete module" answers were cut off. Re-run with 2,048: finish rate and
-   whether every Python block parses. If Q2_K is clearly worse at code, make
-   UD-Q3_K_XL (103 tok/s, half Q2_K's drift) the code default instead.
-3. **VRAM contention** (`experiments/vram_contention.py`). Server fitted at 512
-   and at 0 margin; a second process fills the card; the server must keep
-   answering with identical text. Decides whether the margin can drop to 256
-   (split 2, ~+3%).
-4. **Threads at split 3.** 16 threads was tuned when 23 layers ran on the CPU;
-   now 3 do. Try 16 / 8 / one CCD. Small but free.
-5. **End to end in the real app.** Start `app.py`, send a chat, a code request, a
-   quick question and a 3-turn conversation through the UI. Check streaming, the
-   reported tok/s (target ≥180), and that the quick path's correction rate drops
-   now that both sides sample the same way.
-6. **Document and ship.** README (model, speed, settings table), this file,
-   `SPEC_DECODING.md`; commit; push; update PR #3.
+At 00:41:24 on 2026-09-17, with Q2_K at split 2 (46 of 48 layers' experts on
+the GPU, the heaviest sustained GPU load of any test) the kernel logged
+`Xid 79, GPU has fallen off the bus`, then `Xid 154 ... Node Reboot Required`.
+llama-server died mid-reply. The earlier boots that day ended in clean shutdowns
+with no Xid. Q2_K had also run for about an hour of earlier tests without a
+fault, so load alone doesn't reproduce it on demand; one event, cause unproven.
+Xid 79 is usually power delivery, PCIe signal integrity (RTX 50 cards on
+PCIe 5.0 boards are a known case) or heat.
 
-**You decide:** which model is the default. Q2_K is the one that reaches 2x;
-UD-Q3_K_XL is 1.35x with half the quality drift. Switch with
-`AI2_BIG_MODEL=ud-q3_k_xl` (or `q4_k_m`), no code change.
+Two bugs it exposed, both fixed and tested (`tests/test_server_failures.py`,
+4 tests, plus a live launch with the GPU actually gone):
+- **A GPU-less llama-server counted as a successful launch.** CUDA failed to
+  initialize, llama-server logged "no usable GPU found" and loaded on the CPU,
+  where every split fits. The app would have served at a fraction of its speed
+  with no error. `BigModelServer` now raises `ServerUnavailable` in ~1 s with
+  what to do.
+- **A server dying mid-reply surfaced as a traceback** with half a reply left in
+  the chat. `stream_chat` now raises `ServerUnavailable` with the server log's
+  tail, and the app marks the reply incomplete and shows the error.
 
-**Ruled out along the way:** KV cache q8_0 (-10 tok/s), `--backend-sampling`
-(-2% against no penalty), UD-IQ2_XXS (slower and lower quality than Q2_K),
-split 0 at f16 (doesn't fit next to the desktop).
+### Decision: default UD-Q3_K_XL, Q2_K on probation
 
-**Beyond 2x, only if wanted later:** speculative decoding lost at Q4_K_M because
-checking drafted tokens ran through experts in RAM. With nearly every expert on
-the GPU that changed, so ngram lookup (costs no VRAM, helps repetitive code
-edits) is worth one re-test. A Qwen3-0.6B draft would cost ~4 layers of VRAM
-and probably still loses.
+Weighing it (you asked me to decide):
+- **UD-Q3_K_XL**: 1.39x Q4_K_M, statistically identical accuracy on 414 graded
+  problems, 4.4 GiB smaller, ran ~20 minutes of sustained eval without a fault.
+  Strictly better than what the app ran before. Default.
+- **Q2_K**: the only file at 2x (~189 tok/s). But its accuracy run never
+  finished, so the rule fixed before that run (within 5 points of Q4_K_M on
+  HumanEval and GSM8K) is unmet, not failed; it has twice UD-Q3_K_XL's drift;
+  and the GPU fell off the bus under its load. A default that might take the
+  display down with it needs evidence first. `AI2_BIG_MODEL=q2_k` to use it now.
+
+## Plan 2: next session (after a full power cycle)
+
+In order; each step decides whether the next is worth running.
+
+1. **Hardware check, before any GPU load.** Reseat the GPU's 12V-2x6 power
+   connector fully (partially seated connectors cause Xid 79 under load). In the
+   BIOS, consider forcing the GPU slot to PCIe Gen 4: a common fix for RTX 50 +
+   PCIe 5.0 "fallen off the bus". It should cost little here, since per token only
+   small activations for the few CPU-side layers cross the bus, but measure it (the
+   soak test logs the link gen). If the crash repeats, run `sudo nvidia-bug-report.sh`
+   **before** rebooting: the driver's crash dump is lost when the module unloads.
+2. **GPU soak test, Q2_K at split 2, 45 minutes, with telemetry**
+   (`experiments/gpu_soak.py`, written; its telemetry, Xid detection and
+   failure path were tested with the GPU gone): continuous generation while logging
+   `nvidia-smi` power, temperature, throttle reasons and PCIe errors every 2 s, and
+   `journalctl -k` for Xid. Passes if it runs clean. If it faults, run it once more
+   at UD-Q3_K_XL's split 13: if that is clean, the fault is load-dependent and
+   Q2_K stays opt-in until the hardware is fixed.
+3. **Finish Q2_K's accuracy run.** `MODELS=q2_k python3 experiments/model_quality_eval.py`
+   (resumes; Q4_K_M and UD-Q3_K_XL are saved). Apply the 5-point rule. If Q2_K
+   passes both 2 and 3, make it the default.
+4. **VRAM contention**: `HEADROOM=512` and `HEADROOM=0 python3 experiments/vram_contention.py`.
+   Decides whether the margin can drop to 256 MiB (+1 layer, ~2-3%).
+5. **CPU/GPU knobs**: `python3 experiments/cpu_gpu_knobs.py` on the default
+   model's split (`SPLIT=13` for UD-Q3_K_XL, where 13 layers still run on the CPU,
+   so thread count and L3/CCD pinning matter much more than at Q2_K's 3).
+6. **N-gram speculation for code edits**: `python3 experiments/ngram_q2k.py`
+   (`SPLIT` as above). It lost at Q4_K_M because checking drafts ran through
+   experts in RAM and its prompts asked for new text; this one pastes code and
+   asks for an edited copy, and checks the output is identical to plain decoding.
+7. **Real app, end to end**: `python3 experiments/quick_path_penalty.py`, then start
+   `app.py` and send a chat, a code request, a quick question and a 3-turn
+   conversation through the UI; check streaming and the reported tok/s.
+8. Document, commit, push.
+
+**Ruled out this session:** KV cache q8_0 (-10 tok/s per split), `--backend-sampling`
+(-2% vs no penalty), UD-IQ2_XXS (slower and worse than Q2_K), f16 KV at split 0
+(doesn't fit next to the desktop), custom expert placement (largest layers
+already offloaded first), `--no-host`/AVX-512 repacking and CUDA env vars (below).
 
 ### How a request is served
 
@@ -161,13 +206,13 @@ and probably still loses.
   now sees the conversation history, and an empty draft answer is answered by
   the 30B instead of being shown blank and marked "confirmed".
 
-## Next, in priority order
+## Older backlog (from before Plan 1; Plan 2 comes first)
 
-### 1. Is the 768 MiB safety margin needed? (answered: not by the server; see plan step 3)
+### 1. Is the 768 MiB safety margin needed? (answered: not by the server; see Plan 2 step 4)
 
 Measured with Q2_K: llama-server allocates nothing after its warm-up, even
 through a 2,950-token prompt. The margin was cut to 512 MiB; the contention test
-in plan step 3 decides whether it can go lower.
+in Plan 2 step 4 decides whether it can go lower.
 
 ### 2. Is the quick path worth having at all? (measure, then decide)
 

@@ -1,0 +1,159 @@
+"""
+What the app does when the big-model server can't serve.
+
+Both failures happened for real on 2026-09-17: under sustained load the GPU
+dropped off the PCIe bus (kernel: "NVRM: Xid 79, GPU has fallen off the bus").
+
+1. The server died mid-reply. stream_chat's stream just ended ("Response ended
+   prematurely"), which surfaced as a ChunkedEncodingError traceback, and the
+   chat was left with half a reply. Now stream_chat raises ServerUnavailable
+   with the server log's tail, and app.run_inference puts a clear note in the
+   chat.
+
+2. The next llama-server started anyway: "failed to initialize CUDA", "no usable
+   GPU found, --gpu-layers option will be ignored", then it loaded the model on
+   the CPU. Every split fits on the CPU, so BigModelServer's fitting would have
+   reported success and the app would have served at a fraction of its speed
+   with no error. Now it raises ServerUnavailable as soon as the log says so.
+
+No GPU or model needed: a fake SSE server stands in for llama-server, and the
+launch check is fed a real llama-server log line.
+
+Run:  python3 tests/test_server_failures.py      (also works under pytest)
+"""
+import os
+import socket
+import sys
+import tempfile
+import threading
+import types
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
+import local_engine  # noqa: E402
+from config import Runtime  # noqa: E402
+from local_engine import BigModelServer, ServerUnavailable  # noqa: E402
+
+
+def _fake_sse_server_that_dies():
+    """Listens once; answers with two SSE chunks of a chunked response, then drops
+    the connection mid-stream, like a llama-server whose GPU just disappeared."""
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(1)
+
+    def serve():
+        conn, _ = sock.accept()
+        conn.recv(65536)
+        conn.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n")
+        for text in ("Hello", " world"):
+            body = ('data: {"choices":[{"delta":{"content":"%s"}}]}\n\n' % text).encode()
+            conn.sendall(b"%x\r\n%s\r\n" % (len(body), body))
+        conn.close()                       # no terminating 0-length chunk
+        sock.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    return sock.getsockname()[1]
+
+
+def _bare_server(port, log_text):
+    srv = BigModelServer.__new__(BigModelServer)   # skip __init__: no real launch
+    srv.port = port
+    srv.base_url = f"http://127.0.0.1:{port}"
+    srv.rt = Runtime()
+    srv.proc = types.SimpleNamespace(poll=lambda: 1, terminate=lambda: None)   # already exited
+    srv._log_file = None
+    log = tempfile.NamedTemporaryFile("w", suffix=".log", delete=False)
+    log.write(log_text)
+    log.close()
+    srv.log_path = log.name
+    return srv
+
+
+def test_stream_chat_raises_server_unavailable_when_server_dies_mid_reply():
+    srv = _bare_server(_fake_sse_server_that_dies(), "srv  update_slots: ...\nCUDA error: unspecified launch failure\n")
+    got = []
+    try:
+        for ev in srv.stream_chat([{"role": "user", "content": "hi"}], 16):
+            got.append(ev)
+    except ServerUnavailable as e:
+        assert "exited during the reply" in str(e), e
+        assert "unspecified launch failure" in str(e), "log tail should be in the message"
+    else:
+        raise AssertionError(f"expected ServerUnavailable, stream ended normally with {got}")
+    assert [ev.get("delta") for ev in got] == ["Hello", " world"], got   # partial text still delivered
+
+
+def test_launch_check_refuses_cpu_only_server():
+    srv = _bare_server(1, "0.00.002.793 E ggml_cuda_init: failed to initialize CUDA: unknown error\n"
+                          "warning: no usable GPU found, --gpu-layers option will be ignored\n")
+    try:
+        srv._check_gpu_came_up()
+    except ServerUnavailable as e:
+        assert "no usable GPU" in str(e) and "Xid 79" in str(e), e
+    else:
+        raise AssertionError("a CPU-only llama-server must not count as a successful launch")
+
+
+def test_launch_check_accepts_normal_log():
+    srv = _bare_server(1, "load_tensors:        CUDA0 model buffer size =  9049.24 MiB\n"
+                          "srv  llama_server: model loaded\n")
+    srv._check_gpu_came_up()               # must not raise
+
+
+def test_app_run_inference_reports_failure_in_chat():
+    """app.run_inference, with the engine and trainer stubbed out (importing app
+    would otherwise start a real server)."""
+    import draft_trainer
+
+    class FakeBig:
+        def stream_chat(self, messages, max_tokens):
+            yield {"delta": "Partial answer"}
+            raise ServerUnavailable("llama-server exited during the reply (ChunkedEncodingError).")
+
+    class FakeEngine:
+        def __init__(self, *a, **k):
+            self.big = FakeBig()
+            self.draft_model_path = "fake"
+
+        def reload_draft(self, *a):
+            pass
+
+    class FakeTrainer:
+        def __init__(self, *a, **k):
+            self.on_refresh = None
+
+        def report_mismatch(self, *a):
+            pass
+
+        def snapshot_stats(self):
+            return types.SimpleNamespace(last_update_ts=0, last_refresh_ts=0, steps=0, last_loss=0.0, queued=0,
+                                         refresh_count=0, last_refresh_error=None)
+
+    real_engine, real_trainer = local_engine.LocalMoEEngine, draft_trainer.OnlineDraftTrainer
+    local_engine.LocalMoEEngine, draft_trainer.OnlineDraftTrainer = FakeEngine, FakeTrainer
+    try:
+        sys.modules.pop("app", None)
+        import app
+        outputs = list(app.run_inference("Explain in detail how TCP congestion control works.", 64, []))
+    finally:
+        local_engine.LocalMoEEngine, draft_trainer.OnlineDraftTrainer = real_engine, real_trainer
+    messages, route_text = outputs[-1][0], outputs[-1][1]
+    assert messages[-1]["role"] == "assistant", messages
+    assert messages[-1]["content"].startswith("Partial answer"), messages[-1]
+    assert "model server failed" in messages[-1]["content"], messages[-1]
+    assert "Error" in route_text and "exited during the reply" in route_text, route_text
+
+
+if __name__ == "__main__":
+    tests = [v for k, v in dict(globals()).items() if k.startswith("test_")]
+    failed = 0
+    for t in tests:
+        try:
+            t()
+            print(f"PASS {t.__name__}")
+        except Exception as e:
+            failed += 1
+            print(f"FAIL {t.__name__}: {type(e).__name__}: {e}")
+    print(f"\n{len(tests) - failed}/{len(tests)} passed")
+    sys.exit(1 if failed else 0)
