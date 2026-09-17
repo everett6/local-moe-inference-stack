@@ -1,0 +1,38 @@
+[
+  {
+    "trainer_cpu_threads": 0,
+    "n_cpu_moe": 24,
+    "decode_idle_tps": 68.77,
+    "decode_during_training_tps": 43.28,
+    "decode_window_s": 10.7,
+    "steps_finished_by_end": 1,
+    "train_step_s": 7.8
+  },
+  {
+    "trainer_cpu_threads": 4,
+    "n_cpu_moe": 24,
+    "decode_idle_tps": 71.5,
+    "decode_during_training_tps": 65.07,
+    "decode_window_s": 7.0,
+    "steps_finished_by_end": 1,
+    "train_step_s": 10.4
+  },
+  {
+    "trainer_cpu_threads": 0,
+    "n_cpu_moe": 24,
+    "decode_idle_tps": 70.86,
+    "decode_during_training_tps": 27.36,
+    "decode_window_s": 16.8,
+    "steps_finished_by_end": 1,
+    "train_step_s": 0.4
+  },
+  {
+    "trainer_cpu_threads": 4,
+    "n_cpu_moe": 24,
+    "decode_idle_tps": 71.72,
+    "decode_during_training_tps": 63.72,
+    "decode_window_s": 7.1,
+    "steps_finished_by_end": 1,
+    "train_step_s": 10.8
+  }
+]

@@ -22,12 +22,13 @@ per-token probabilities) has changed across llama.cpp releases. If
 your build and adjust the field names to match.
 """
 import atexit
+import json
 import os
 import subprocess
 import threading
 import time
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import Callable, Iterator, List, Optional
 
 import requests
 from llama_cpp import Llama
@@ -182,6 +183,46 @@ class BigModelServer:
         )
         r.raise_for_status()
         return r.json()
+
+    def stream_chat(self, messages: List[dict], max_tokens: int) -> Iterator[dict]:
+        """Stream a chat reply from the big model, formatted with its chat template.
+
+        Yields {"delta": str} as text arrives, then one final {"timings": dict}.
+
+        Why this exists alongside complete_greedy: that method sends raw token ids
+        to /completion, which applies NO chat template. Qwen3-30B-A3B-Instruct is a
+        chat model; handed bare text it continues the text instead of answering it.
+        /v1/chat/completions applies the model's own template and takes the whole
+        conversation, so earlier turns are visible to the model too. Streaming
+        means the first words appear after prefill, not after the whole reply.
+
+        Sampling matches complete_greedy (greedy, repeat_penalty 1.1), so this
+        changes the formatting and delivery of replies, not how tokens are chosen.
+        """
+        r = requests.post(
+            f"{self.base_url}/v1/chat/completions",
+            json={"messages": messages, "max_tokens": max_tokens, "stream": True,
+                  "temperature": 0.0, "repeat_penalty": 1.1, "cache_prompt": True,
+                  "timings_per_token": False},
+            stream=True,
+            timeout=600,
+        )
+        r.raise_for_status()
+        timings = None
+        for raw in r.iter_lines(decode_unicode=True):
+            if not raw or not raw.startswith("data: "):
+                continue
+            payload = raw[len("data: "):]
+            if payload == "[DONE]":
+                break
+            chunk = json.loads(payload)
+            if chunk.get("timings"):
+                timings = chunk["timings"]
+            for choice in chunk.get("choices", []):
+                text = (choice.get("delta") or {}).get("content")
+                if text:
+                    yield {"delta": text}
+        yield {"timings": timings or {}}
 
     def stop(self):
         if self.proc is not None and self.proc.poll() is None:

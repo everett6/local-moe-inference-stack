@@ -68,7 +68,14 @@ class OnlineDraftTrainer:
         self._stop = threading.Event()
         self._lock = threading.Lock()
 
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        # See Runtime.trainer_device: GPU memory held here is memory the big model's
+        # experts can't use, because this runs before the big model launches.
+        wanted = rt.trainer_device
+        if wanted == "cuda" and not torch.cuda.is_available():
+            wanted = "cpu"
+        self.device = wanted
+        if self.device == "cpu" and rt.trainer_cpu_threads > 0:
+            torch.set_num_threads(rt.trainer_cpu_threads)
         self.tokenizer = AutoTokenizer.from_pretrained(paths.draft_model_hf)
         base = AutoModelForCausalLM.from_pretrained(
             paths.draft_model_hf,

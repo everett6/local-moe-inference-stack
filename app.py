@@ -7,6 +7,7 @@ packages in requirements.txt.
 """
 import sys
 import time
+from typing import Optional
 
 import gradio as gr
 import psutil
@@ -91,8 +92,9 @@ def run_inference(message: str, max_tokens: float, history):
     this same generator call. If they disagree, the displayed answer is
     corrected and the mismatch is queued for training -- this is where the
     online self-improvement loop actually earns its keep now: on the fast
-    path's accuracy, not on speeding up the big model. Everything else uses
-    engine.generate_baseline(), the fastest *correct* option per the benchmark.
+    path's accuracy, not on speeding up the big model. Everything else goes to the
+    big model alone via BigModelServer.stream_chat: chat-templated, with the
+    conversation so far, streamed as it generates.
     """
     if not message.strip():
         yield history or [], "Enter a prompt first.", gpu_telemetry(), trainer_panel()
@@ -151,21 +153,61 @@ def run_inference(message: str, max_tokens: float, history):
         yield all_messages, route_text, gpu_telemetry(), trainer_panel()
         return
 
-    start = time.perf_counter()
-    out_tokens = engine.generate_baseline(list(prompt_tokens), max_tokens=max_tokens_i)
-    elapsed = time.perf_counter() - start
-    text = engine.draft.detokenize(out_tokens).decode("utf-8", "ignore")
+    # Big-model path: chat template + full conversation + streaming. See
+    # BigModelServer.stream_chat for why this no longer goes through
+    # generate_baseline's raw-token /completion call.
     all_messages = (history or []) + [
         {"role": "user", "content": message},
-        {"role": "assistant", "content": text},
+        {"role": "assistant", "content": ""},
     ]
-    tok_per_sec = (len(out_tokens) / elapsed) if elapsed > 0 else 0.0
-    route_text = (
-        "### Route decision\n"
-        f"* Bucket: `{bucket}` (big model, no speculative overhead)\n"
-        f"* Tokens/sec: `{tok_per_sec:.2f}`"
+    model_messages = [m for m in (_as_model_message(h) for h in all_messages[:-1]) if m]
+    route_head = f"### Route decision\n* Bucket: `{bucket}` (big model, no speculative overhead)\n"
+    gpu_text, train_text = gpu_telemetry(), trainer_panel()
+    yield all_messages, route_head + "* Generating...", gpu_text, train_text
+
+    start = time.perf_counter()
+    first_token_s = None
+    text = ""
+    timings = {}
+    last_yield = 0.0
+    for event in engine.big.stream_chat(model_messages, max_tokens_i):
+        if "timings" in event:
+            timings = event["timings"]
+            continue
+        if first_token_s is None:
+            first_token_s = time.perf_counter() - start
+        text += event["delta"]
+        all_messages[-1] = {"role": "assistant", "content": text}
+        # Re-rendering the chat on every token is wasted work in the browser;
+        # ~20 updates a second reads as smooth.
+        now = time.perf_counter()
+        if now - last_yield >= 0.05:
+            last_yield = now
+            yield all_messages, route_head + "* Generating...", gpu_text, train_text
+
+    decode_tps = timings.get("predicted_per_second")
+    route_text = route_head + (
+        f"* Tokens/sec: `{decode_tps:.2f}` (decode, server-measured)\n" if decode_tps else ""
+    ) + (
+        f"* Time to first token: `{first_token_s:.2f}s`" if first_token_s is not None else "* (empty reply)"
     )
     yield all_messages, route_text, gpu_telemetry(), trainer_panel()
+
+
+def _as_model_message(m) -> Optional[dict]:
+    """Gradio chat history -> an OpenAI-style message, or None to drop it.
+
+    Gradio 6 may store content as a plain string or as a list of typed parts;
+    only the text is meaningful to the model.
+    """
+    if not isinstance(m, dict) or m.get("role") not in ("user", "assistant", "system"):
+        return None
+    content = m.get("content")
+    if isinstance(content, list):
+        content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+    if not isinstance(content, str):
+        return None
+    return {"role": m["role"], "content": content}
 
 
 DEFAULT_BENCH_PROMPTS = [
@@ -237,7 +279,8 @@ with gr.Blocks(title="Local MoE Router (no LM Studio)") as demo:
     gr.Markdown(
         "# Local MoE Router\n"
         "Runs entirely through llama.cpp, controlled from this script. No LM Studio dependency.\n\n"
-        "MoE experts are statically split GPU/CPU via `-ot` at load time (see `config.py`); "
+        "MoE experts are split GPU/CPU at load time with `--n-cpu-moe`, fitted to the VRAM "
+        "actually free when the server starts (see `config.py`); "
         "the draft model self-adapts in the background using accept/reject mismatches "
         "(see `draft_trainer.py`)."
     )

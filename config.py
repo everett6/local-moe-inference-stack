@@ -89,6 +89,22 @@ class Runtime:
     # a browser tab opened later. 0 = pack the card as tightly as it will load.
     vram_headroom_mb: int = 768
     # Online draft-model training
+    # Where the trainer's copy of the draft model lives: "cuda" or "cpu".
+    # app.py builds the trainer BEFORE the big model starts, so on "cuda" its
+    # weights + PyTorch's CUDA context come out of the VRAM BigModelServer would
+    # otherwise fit experts into -- on every request, not just while training.
+    # Measured with the app's real startup order (experiments/app_startup_vram.py):
+    #   cuda: big model fits split 28, 60.9-64.3 tok/s, training step 2.0-2.5 s
+    #   cpu:  big model fits split 24, 70.2-71.6 tok/s, training step ~10 s
+    # Training is background work; replies are what the user waits on.
+    trainer_device: str = "cpu"
+    # CPU threads for the trainer on "cpu"; 0 = PyTorch's default (every physical
+    # core). Those are the same cores the big model's CPU-side experts run on.
+    # Measured decode speed WHILE a training step runs:
+    #   0 (all cores): 27-43 tok/s   -- training starves generation
+    #   4:             64-65 tok/s   -- still above a GPU trainer's permanent ~62
+    # at the cost of a ~10.5 s step instead of ~8 s.
+    trainer_cpu_threads: int = 4
     train_batch_size: int = 16
     lora_r: int = 8
     lora_alpha: int = 16
