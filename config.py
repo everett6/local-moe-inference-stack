@@ -16,13 +16,48 @@ import os
 from dataclasses import dataclass
 
 _AI2_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Which quantization of Qwen3-30B-A3B-Instruct-2507 the app serves, and the
+# --n-cpu-moe split BigModelServer starts fitting from. Pick with the AI2_BIG_MODEL
+# environment variable. Measured on this box (RTX 5070 12 GB, desktop running),
+# decode through the app's own launch path, quality vs Q4_K_M:
+#
+#   name        file      decode    mean KLD  same top token  GSM8K/50
+#   q4_k_m      17.3 GiB   76 tok/s   0        100%            50
+#   ud-q3_k_xl  12.9 GiB  103         0.044     90.3%          49
+#   iq3_xxs     11.4 GiB  113         0.076     87.2%          48
+#   q2_k        10.2 GiB  ~188        0.098     86.2%          47
+#
+# q2_k is the default because it is the one that reaches 2x: at 10.2 GiB nearly
+# all experts fit in VRAM (split 2-3 of 48). It is a real, measured quality cost,
+# mostly visible as the model talking itself in circles on harder word problems.
+# `AI2_BIG_MODEL=q4_k_m python3 app.py` gets the old model back. The smaller
+# files come from tools/download_quants.py (sha256-verified). Sources:
+# experiments/quant_speed_quality.py, quant_kld.sh, q2k_split_floor.py.
+_QUANTS = os.path.join(_AI2_DIR, "models", "quants")
+_Q4_K_M = "/home/everett/.lmstudio/models/lmstudio-community/Qwen3-30B-A3B-Instruct-2507-GGUF/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf"
+BIG_MODELS = {
+    "q4_k_m": (_Q4_K_M, 20),
+    "ud-q3_k_xl": (os.path.join(_QUANTS, "Qwen3-30B-A3B-Instruct-2507-UD-Q3_K_XL.gguf"), 12),
+    "iq3_xxs": (os.path.join(_QUANTS, "Qwen_Qwen3-30B-A3B-Instruct-2507-IQ3_XXS.gguf"), 8),
+    "q2_k": (os.path.join(_QUANTS, "Qwen_Qwen3-30B-A3B-Instruct-2507-Q2_K.gguf"), 0),
+}
+BIG_MODEL = os.environ.get("AI2_BIG_MODEL", "q2_k").lower()
+if BIG_MODEL not in BIG_MODELS:
+    raise ValueError(f"AI2_BIG_MODEL={BIG_MODEL!r}; choose one of {', '.join(BIG_MODELS)}")
+if not os.path.exists(BIG_MODELS[BIG_MODEL][0]):
+    # A fresh checkout has no models/quants/ (it is gitignored); don't fail to start.
+    print(f"[config] {BIG_MODELS[BIG_MODEL][0]} not found -- using q4_k_m. "
+          "Run tools/download_quants.py to fetch the smaller quantizations.", flush=True)
+    BIG_MODEL = "q4_k_m"
+
 _LMSTUDIO_CUDA12_BACKEND = "/home/everett/.lmstudio/extensions/backends/llama.cpp-linux-x86_64-nvidia-cuda12-avx2-2.37.0"
 _LMSTUDIO_CUDA12_VENDOR = "/home/everett/.lmstudio/extensions/backends/vendor/linux-llama-cuda12-vendor-v1"
 
 
 @dataclass
 class Paths:
-    big_model_gguf: str = "/home/everett/.lmstudio/models/lmstudio-community/Qwen3-30B-A3B-Instruct-2507-GGUF/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf"
+    big_model_gguf: str = BIG_MODELS[BIG_MODEL][0]
     draft_model_gguf: str = os.path.join(_AI2_DIR, "Model Training", "Qwen2.5-Coder-0.5B-Instruct-Q8_0.gguf")
 
     # fp16 transformers copy, training only -- separate from the quantized inference copy above.
@@ -83,7 +118,9 @@ class Runtime:
     # `vram_headroom_mb` free, it restarts with `n_cpu_moe_step` more layers on
     # CPU, up to all 48. You get the fastest split that actually fits right now,
     # instead of a crash.
-    n_cpu_moe: int = 20
+    #
+    # Per model: see BIG_MODELS above (20 for Q4_K_M, 0 for Q2_K).
+    n_cpu_moe: int = BIG_MODELS[BIG_MODEL][1]
     # 1, not 2: with a step of 2 the app went 20 -> 22 -> 24, because 22 left
     # ~720 MiB free, just under the headroom. A step of 1 lands on 23, one more
     # layer of experts in VRAM, for ~1 s more startup (71.1 tok/s at 23).
@@ -93,13 +130,19 @@ class Runtime:
     # (81.1 vs 78.3, experiments/runtime_knob_sweep.py). A second concurrent
     # request would wait for the first instead of sharing the GPU.
     server_slots: int = 1
-    # Free VRAM to keep after the big model loads, as a margin for other programs
-    # (a browser, another model server). 0 = pack the card as tightly as it will
-    # load. This margin, not the draft model, is why the app fits split 23
-    # (~71 tok/s) rather than 20-21 (~80): 20-22 leave less than 768 MiB free.
-    # Whether a running server actually needs it -- i.e. whether it allocates
-    # more VRAM after the warm-up -- is unmeasured; see PLAN.md.
-    vram_headroom_mb: int = 768
+    # Free VRAM to leave for other programs after the big model loads and warms up.
+    # The server itself doesn't need it: in experiments/q2k_split_floor.py, free
+    # VRAM after a 2,950-token prompt + 512 generated tokens matched free VRAM
+    # after the warm-up to within 2 MiB at every split, even with 126 MiB left --
+    # llama-server reserves KV cache and compute buffers up front, and the warm-up
+    # triggers the one lazy allocation (cuBLAS). A program that later wants VRAM
+    # the server holds gets the out-of-memory error, not the server
+    # (experiments/vram_contention.py). So this is purely for the desktop and
+    # browser, which hold ~700 MiB here and grow when a page uses the GPU.
+    # Was 768. Each Q2_K layer of experts is ~200 MiB and ~0.2 ms/token in RAM, so
+    # 512 costs Q2_K about one layer versus 256 (split 3 with 542 MiB free, vs
+    # split 2 with 334), ~2-3% decode, and keeps room for a few browser tabs.
+    vram_headroom_mb: int = 512
     # Longest chat-templated prompt (conversation so far + message, in tokens) the
     # quick path will take. Longer conversations go to the 30B instead.
     # The draft runs in llama-cpp-python, which here is a CPU-only build, and it
@@ -110,6 +153,18 @@ class Runtime:
     # 0.3-0.9 s in the cleanest measurement. Timings above that were erratic
     # because the machine was swapping, so re-measure before raising this.
     quick_max_prompt_tokens: int = 512
+    # repeat_penalty for every big-model request (streamed replies and the quick
+    # path's verification). 1.0 = off, llama-server's default. It was 1.1, which
+    # had two costs:
+    #  - The quick path compares the draft's greedy tokens with the 30B's token for
+    #    token, but the draft (llama-cpp-python) samples with ITS default of 1.0.
+    #    Any disagreement the penalty alone caused was shown to the user as a
+    #    correction and saved as a training example the draft could never match.
+    #  - Speed: the penalty makes llama-server's CPU sampler do extra work per token.
+    #    Invisible at 76 tok/s; at Q2_K's ~190 it was 6% (189.5 -> 177.5 tok/s,
+    #    experiments/request_overhead_ab.py). Streaming itself costs nothing.
+    # Checked for repetition loops before switching: experiments/penalty_quality.py.
+    repeat_penalty: float = 1.0
     # Online draft-model training
     # Where the trainer's copy of the draft model lives: "cuda" or "cpu".
     # app.py builds the trainer BEFORE the big model starts, so on "cuda" its

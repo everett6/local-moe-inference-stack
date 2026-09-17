@@ -64,14 +64,32 @@ PREFILL_PROMPT = ("Here is a log of events from a distributed system. Summarize 
                             f"queue depth {(i * 37) % 250}" for i in range(110)))
 GSM8K = [json.loads(l) for l in open(os.path.join(AI2, "data", "quality", "gsm8k_test_first50.jsonl"))]
 NUM = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
+BOXED = re.compile(r"\\boxed\{((?:[^{}]|\{[^{}]*\})*)\}")
+ANSWER = re.compile(r"answer", re.IGNORECASE)
 
 
-def last_number(text):
+def extract_answer(text):
+    """The model's final number: inside its last \\boxed{}, else the first number
+    after its last "answer", else the last number in the reply. (The first version
+    took the last number only, which failed correct replies: "$26.00" vs "26", and
+    "45 miles away at the end of those 4 hours" read as 4.)"""
+    boxed = BOXED.findall(text)
+    if boxed and NUM.findall(boxed[-1]):
+        return NUM.findall(boxed[-1])[-1]
+    hits = list(ANSWER.finditer(text))
+    if hits:
+        nums = NUM.findall(text[hits[-1].end():])
+        if nums:
+            return nums[0]
     nums = NUM.findall(text)
-    if not nums:
-        return None
-    v = nums[-1].replace(",", "")
-    return v[:-2] if v.endswith(".0") else v.rstrip(".")
+    return nums[-1] if nums else None
+
+
+def is_correct(got, answer):
+    try:
+        return got is not None and abs(float(got.replace(",", "")) - float(answer.replace(",", ""))) < 1e-6
+    except ValueError:
+        return False
 
 
 def measure(label, path, start, rnd, do_gsm8k):
@@ -99,10 +117,10 @@ def measure(label, path, start, rnd, do_gsm8k):
             for item in GSM8K:
                 reply = "".join(ev.get("delta", "") for ev in srv.stream_chat(
                     [{"role": "user", "content": item["question"]}], 768))
-                got = last_number(reply)
-                ok = got == item["answer"]
+                got = extract_answer(reply)
+                ok = is_correct(got, item["answer"])
                 right += ok
-                details.append({"answer": item["answer"], "got": got, "ok": ok, "reply_tail": reply[-200:]})
+                details.append({"answer": item["answer"], "got": got, "ok": ok, "reply": reply})
             out["gsm8k_correct"] = right
             out["gsm8k_details"] = details
     finally:

@@ -7,21 +7,104 @@
 ## Where things stand
 
 **Hardware:** RTX 5070 (12 GB), Ryzen 9 7950X (16 cores), 32 GB RAM.
-**Model:** Qwen3-30B-A3B-Instruct-2507, Q4_K_M, served by LM Studio's bundled
+**Model:** Qwen3-30B-A3B-Instruct-2507, Q4_K_M in the last commit, Q2_K in progress, served by LM Studio's bundled
 `llama-server`.
 
 ### Speed
 
-| setup | decode tok/s |
-|---|---|
-| Original config (every MoE expert in RAM) | 47 |
-| **The app as it starts today** (split 23) | **~71** |
-| Ceiling: 30B alone on an otherwise empty card (split 20) | ~82 |
+| setup | decode tok/s | vs original |
+|---|---|---|
+| Original config (every MoE expert in RAM, Q4_K_M) | 47 | 1.0x |
+| App at the start of this plan (Q4_K_M, split 23-24) | ~76 | 1.6x |
+| **Q2_K, app request path, split 3** (uncommitted, see plan below) | **~189** | **4.0x** |
+| Q2_K, every expert on the GPU (bare server, KV q8_0) | 198 | 4.2x |
 
-The gap between 71 and 82 is the 768 MiB `vram_headroom_mb` safety margin, which
-makes the app stop at split 23. It is **not** the in-process draft model: the
-installed llama-cpp-python is a CPU-only build, so the draft uses no VRAM. An
-earlier version of this file said otherwise.
+Against the Q4_K_M app (~76) Q2_K is **2.5x**; against the 90 tok/s baseline
+you gave, 2.1x.
+
+## Current plan: 2x decode with Q2_K, without losing measurable quality
+
+**Why this route.** Every runtime lever at Q4_K_M was measured and none gets
+near 2x (sections below). Decode is linear in how many layers of experts sit in
+RAM, and a 17.3 GiB model leaves ~23 of 48 there. Smaller files fit more on the
+card, at a quality cost, so both were measured.
+
+**Measured so far** (all on this box, desktop running):
+
+| file | size | split | decode (app path) | mean KLD | same top token | GSM8K/50 |
+|---|---|---|---|---|---|---|
+| Q4_K_M (today) | 17.3 GiB | 23-24 | 76 | 0 | 100% | 50 |
+| UD-Q3_K_XL | 12.9 GiB | 14-15 | 103 | 0.044 | 90.3% | 49 |
+| IQ3_XXS | 11.4 GiB | 10-11 | 113 | 0.076 | 87.2% | 48 |
+| **Q2_K** | 10.2 GiB | 5-6 | 160 (penalty 1.1, 768 MiB margin) | 0.098 | 86.2% | 47-49 |
+| UD-IQ2_XXS | 9.6 GiB | 2-4 | 147 | 0.093 | 86.4% | 47 |
+
+- UD-IQ2_XXS is smaller but slower than Q2_K: its i-quant GPU kernels cost
+  more than the extra layers on the GPU save. Q2_K is the only file that
+  reaches 2x.
+- GSM8K was first scored 43-46/50 because the grader took the last number in
+  the reply ("$26.00" failed against "26"; "45 miles … in 4 hours" read as 4).
+  Fixed; the table uses the fixed grader. Remaining misses are mostly the same
+  two hard questions, where smaller models talk in circles until the token limit.
+- **Request path overhead** (`experiments/request_overhead_ab.py`, Q2_K split 3):
+  streaming costs nothing; `repeat_penalty 1.1` costs 6% (189.5 → 177.5). GPU
+  sampling (`--backend-sampling`) makes the penalty nearly free but is 2% slower
+  than no penalty.
+- **The penalty was also a bug.** The quick path compares the draft's greedy
+  tokens with the 30B's token for token, but the draft samples at 1.0 and the 30B
+  at 1.1, so some "corrections" and training examples came from the setting, not
+  the draft. With penalty 1.0: no repetition loops on Q2_K (0 of 62 replies,
+  same as 1.1), GSM8K 48 vs 49, 188.6 vs 177.0 tok/s.
+- **Split floor** (`experiments/q2k_split_floor.py`, bare server): Q2_K gains
+  ~0.19 ms/token per layer moved to the GPU: split 6 172.8, 4 184.7, 3 189.7,
+  1 200.7 tok/s. Split 0 with an f16 KV cache loads, then crashes on the first
+  prompt. KV q8_0 makes split 0 fit (198.2) but costs ~10 tok/s at any given
+  split, so f16 stays.
+- **The VRAM margin isn't protecting the server.** Free VRAM after a
+  2,950-token prompt + 512 generated tokens matched free VRAM after warm-up to
+  within 2 MiB at every split, even with 126 MiB left. Margin cut 768 → 512 MiB
+  (Q2_K lands on split 3).
+
+**Made so far (uncommitted):** `config.BIG_MODELS` + `AI2_BIG_MODEL` env var
+(default `q2_k`, falls back to Q4_K_M if the file is missing),
+`Runtime.repeat_penalty = 1.0` for every 30B request, `vram_headroom_mb = 512`,
+the fixed GSM8K grader.
+
+**Remaining steps, in order:**
+
+1. **Finish the penalty check on Q4_K_M** (running). Confirms 1.0 is safe for
+   both models, not only Q2_K.
+2. **Code quality, Q2_K vs Q4_K_M.** GSM8K doesn't cover code, the main use of
+   this box. The first code test capped replies at 1,024 tokens and most "write a
+   complete module" answers were cut off. Re-run with 2,048: finish rate and
+   whether every Python block parses. If Q2_K is clearly worse at code, make
+   UD-Q3_K_XL (103 tok/s, half Q2_K's drift) the code default instead.
+3. **VRAM contention** (`experiments/vram_contention.py`). Server fitted at 512
+   and at 0 margin; a second process fills the card; the server must keep
+   answering with identical text. Decides whether the margin can drop to 256
+   (split 2, ~+3%).
+4. **Threads at split 3.** 16 threads was tuned when 23 layers ran on the CPU;
+   now 3 do. Try 16 / 8 / one CCD. Small but free.
+5. **End to end in the real app.** Start `app.py`, send a chat, a code request, a
+   quick question and a 3-turn conversation through the UI. Check streaming, the
+   reported tok/s (target ≥180), and that the quick path's correction rate drops
+   now that both sides sample the same way.
+6. **Document and ship.** README (model, speed, settings table), this file,
+   `SPEC_DECODING.md`; commit; push; update PR #3.
+
+**You decide:** which model is the default. Q2_K is the one that reaches 2x;
+UD-Q3_K_XL is 1.35x with half the quality drift. Switch with
+`AI2_BIG_MODEL=ud-q3_k_xl` (or `q4_k_m`), no code change.
+
+**Ruled out along the way:** KV cache q8_0 (-10 tok/s), `--backend-sampling`
+(-2% against no penalty), UD-IQ2_XXS (slower and lower quality than Q2_K),
+split 0 at f16 (doesn't fit next to the desktop).
+
+**Beyond 2x, only if wanted later:** speculative decoding lost at Q4_K_M because
+checking drafted tokens ran through experts in RAM. With nearly every expert on
+the GPU that changed, so ngram lookup (costs no VRAM, helps repetitive code
+edits) is worth one re-test. A Qwen3-0.6B draft would cost ~4 layers of VRAM
+and probably still loses.
 
 ### How a request is served
 
@@ -80,19 +163,11 @@ earlier version of this file said otherwise.
 
 ## Next, in priority order
 
-### 1. Is the 768 MiB safety margin needed? (measure, ~9 tok/s at stake)
+### 1. Is the 768 MiB safety margin needed? (answered: not by the server; see plan step 3)
 
-The app stops at split 23 (~71 tok/s) because splits 20-22 leave less than
-`vram_headroom_mb` free. Split 20-21 runs ~80. The margin only matters if
-llama-server allocates **more** VRAM after its warm-up, or if another program
-grabbing VRAM later can make a running server fail. Test it: start the server
-at split 20 with the margin at 0, allocate GPU memory from another process, then
-run long prompts and long generations. If the server survives, lower the
-margin.
-
-**Measure with the machine idle.** During this session a Firefox tab held
-11 GB of RAM and the system was 4.6 GB into swap, which made CPU timings swing
-by 10x and also slows the 30B's RAM-side experts.
+Measured with Q2_K: llama-server allocates nothing after its warm-up, even
+through a 2,950-token prompt. The margin was cut to 512 MiB; the contention test
+in plan step 3 decides whether it can go lower.
 
 ### 2. Is the quick path worth having at all? (measure, then decide)
 

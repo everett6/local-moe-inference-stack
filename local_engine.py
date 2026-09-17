@@ -190,8 +190,8 @@ class BigModelServer:
         """
         r = requests.post(
             f"{self.base_url}/completion",
-            json={"prompt": tokens, "n_predict": n_predict, "temperature": 0.0, "repeat_penalty": 1.1,
-                  "cache_prompt": True, "n_probs": 1},
+            json={"prompt": tokens, "n_predict": n_predict, "temperature": 0.0,
+                  "repeat_penalty": self.rt.repeat_penalty, "cache_prompt": True, "n_probs": 1},
             timeout=120,
         )
         r.raise_for_status()
@@ -201,8 +201,8 @@ class BigModelServer:
     def complete_greedy(self, tokens: List[int], n_predict: int) -> dict:
         r = requests.post(
             f"{self.base_url}/completion",
-            json={"prompt": tokens, "n_predict": n_predict, "temperature": 0.0, "repeat_penalty": 1.1,
-                  "cache_prompt": True},
+            json={"prompt": tokens, "n_predict": n_predict, "temperature": 0.0,
+                  "repeat_penalty": self.rt.repeat_penalty, "cache_prompt": True},
             timeout=120,
         )
         r.raise_for_status()
@@ -227,13 +227,13 @@ class BigModelServer:
         conversation, so earlier turns are visible to the model too. Streaming
         means the first words appear after prefill, not after the whole reply.
 
-        Sampling matches complete_greedy (greedy, repeat_penalty 1.1), so this
+        Sampling matches complete_greedy (greedy, Runtime.repeat_penalty), so this
         changes the formatting and delivery of replies, not how tokens are chosen.
         """
         r = requests.post(
             f"{self.base_url}/v1/chat/completions",
             json={"messages": messages, "max_tokens": max_tokens, "stream": True,
-                  "temperature": 0.0, "repeat_penalty": 1.1, "cache_prompt": True,
+                  "temperature": 0.0, "repeat_penalty": self.rt.repeat_penalty, "cache_prompt": True,
                   "timings_per_token": False},
             stream=True,
             timeout=600,
