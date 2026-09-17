@@ -170,6 +170,24 @@ from the process's memory map). Split 23, 2 interleaved rounds, medians:
 
 Decode here is limited by memory bandwidth, not vector width. Stock stays.
 
+**Also ruled out: runtime CUDA environment variables** (`experiments/cuda_env_ab.py`).
+LM Studio's CUDA build is already right for this card (native `sm_120`
+Blackwell kernels, CUDA runtime 12.8), so the only free CUDA-side knobs are
+env vars. Split 23, 2 interleaved rounds, medians:
+
+| setting | decode | vs baseline | notes |
+|---|---|---|---|
+| baseline | 73.0 | 1.00x | ran first in each round |
+| `GGML_CUDA_REGISTER_HOST=1` | 76.1 | 1.04x | **provably a no-op**: 0 GB pinned; nothing in llama-server calls it |
+| `GGML_CUDA_GRAPH_OPT=1` | 76.1 | 1.04x | identical to the no-op; output changes slightly |
+| `GGML_CUDA_PDL=0` | 74.0 | 1.01x | default (on) is fine |
+| GRAPH_OPT + REGISTER_HOST | 78.5 | 1.08x | range 76.1-81.0 overlaps the no-op arm |
+| unified memory, all experts "on GPU" | 13.8 | 0.19x | VRAM oversubscription pages over PCIe |
+
+A setting known to do nothing scored +4%, which is noise plus an ordering bias
+(baseline was always first, so always colder). Against that no-op arm, nothing
+gains. No change.
+
 ### 3. Math renders as raw brackets (small)
 
 The 30B writes LaTeX as `\[ … \]`, and the chat shows it as `[ 17 \times 24 = 408 ]`.
