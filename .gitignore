@@ -21,3 +21,6 @@ models/refreshed/
 
 # Captured target outputs for draft self-distillation -- regenerable, and large
 data/draft_train_capture.jsonl
+
+# Locally built llama-server variants (copies of LM Studio's backend with a swapped CPU library)
+build/

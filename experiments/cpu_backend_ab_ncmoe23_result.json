@@ -1,0 +1,110 @@
+{
+  "n_cpu_moe": "23",
+  "swap_end_gb": 1.98,
+  "samples": {
+    "stock": [
+      {
+        "decode_tps": 73.49128140776224,
+        "prefill_tps": 1485.115833491655,
+        "prefill_n": 2947,
+        "rss_gb": 9.18,
+        "load_s": 2.3,
+        "cpu_lib": [
+          "/home/everett/.lmstudio/extensions/backends/llama.cpp-linux-x86_64-nvidia-cuda12-avx2-2.37.0/libggml-cpu.so"
+        ],
+        "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered prime because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one divisor (itself), it does not meet this criterion. Additionally, excluding ",
+        "log": "/home/everett/AI2/state/cpuab_stock_r0.log"
+      },
+      {
+        "decode_tps": 76.88463460577402,
+        "prefill_tps": 1518.4123599899629,
+        "prefill_n": 2947,
+        "rss_gb": 9.18,
+        "load_s": 2.2,
+        "cpu_lib": [
+          "/home/everett/.lmstudio/extensions/backends/llama.cpp-linux-x86_64-nvidia-cuda12-avx2-2.37.0/libggml-cpu.so"
+        ],
+        "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered prime because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one divisor (itself), it does not meet this criterion. Additionally, excluding ",
+        "log": "/home/everett/AI2/state/cpuab_stock_r1.log"
+      }
+    ],
+    "stock_nohost": [
+      {
+        "decode_tps": 76.61110765297083,
+        "prefill_tps": 596.6404707689696,
+        "prefill_n": 2947,
+        "rss_gb": 14.5,
+        "load_s": 6.2,
+        "cpu_lib": [
+          "/home/everett/.lmstudio/extensions/backends/llama.cpp-linux-x86_64-nvidia-cuda12-avx2-2.37.0/libggml-cpu.so"
+        ],
+        "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered prime because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one divisor (itself), it does not meet this criterion. Additionally, excluding ",
+        "log": "/home/everett/AI2/state/cpuab_stock_nohost_r0.log"
+      },
+      {
+        "decode_tps": 77.24714354547008,
+        "prefill_tps": 648.4526362229119,
+        "prefill_n": 2947,
+        "rss_gb": 14.5,
+        "load_s": 6.2,
+        "cpu_lib": [
+          "/home/everett/.lmstudio/extensions/backends/llama.cpp-linux-x86_64-nvidia-cuda12-avx2-2.37.0/libggml-cpu.so"
+        ],
+        "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered prime because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one divisor (itself), it does not meet this criterion. Additionally, excluding ",
+        "log": "/home/everett/AI2/state/cpuab_stock_nohost_r1.log"
+      }
+    ],
+    "avx2_nohost": [
+      {
+        "decode_tps": 77.89165465566535,
+        "prefill_tps": 664.1753891804094,
+        "prefill_n": 2947,
+        "rss_gb": 14.5,
+        "load_s": 5.2,
+        "cpu_lib": [
+          "/home/everett/AI2/build/llama-server-avx2/libggml-cpu.so"
+        ],
+        "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered prime because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one divisor (itself), it does not meet this criterion. Additionally, excluding ",
+        "log": "/home/everett/AI2/state/cpuab_avx2_nohost_r0.log"
+      },
+      {
+        "decode_tps": 76.28865848301274,
+        "prefill_tps": 640.6195858732403,
+        "prefill_n": 2947,
+        "rss_gb": 14.5,
+        "load_s": 5.2,
+        "cpu_lib": [
+          "/home/everett/AI2/build/llama-server-avx2/libggml-cpu.so"
+        ],
+        "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered prime because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one divisor (itself), it does not meet this criterion. Additionally, excluding ",
+        "log": "/home/everett/AI2/state/cpuab_avx2_nohost_r1.log"
+      }
+    ],
+    "znver4_nohost": [
+      {
+        "decode_tps": 75.97509283206655,
+        "prefill_tps": 650.6259874193174,
+        "prefill_n": 2947,
+        "rss_gb": 14.5,
+        "load_s": 5.2,
+        "cpu_lib": [
+          "/home/everett/AI2/build/llama-server-znver4/libggml-cpu.so"
+        ],
+        "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered prime because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one positive divisor (itself), it does not meet this criterion. Additionally, excluding",
+        "log": "/home/everett/AI2/state/cpuab_znver4_nohost_r0.log"
+      },
+      {
+        "decode_tps": 69.53111691309654,
+        "prefill_tps": 624.5124638659038,
+        "prefill_n": 2947,
+        "rss_gb": 14.5,
+        "load_s": 5.2,
+        "cpu_lib": [
+          "/home/everett/AI2/build/llama-server-znver4/libggml-cpu.so"
+        ],
+        "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered prime because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one positive divisor (itself), it does not meet this criterion. Additionally, excluding",
+        "log": "/home/everett/AI2/state/cpuab_znver4_nohost_r1.log"
+      }
+    ]
+  }
+}

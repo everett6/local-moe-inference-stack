@@ -144,9 +144,31 @@ fallback for misses, async cache updates) and building it with CUDA, which needs
 the CUDA toolkit installed (not on this machine). Check whether an existing
 engine already does this for Qwen3-MoE before building one.
 
-A cheaper, unmeasured idea first: LM Studio only ships `avx2` llama.cpp builds,
-and the 7950X has AVX-512. The CPU-side expert layers are ~55% of each token's
-time, so a faster CPU backend could help without any engine redesign.
+**Tried and ruled out: an AVX-512 CPU backend** (`experiments/cpu_backend_ab.py`).
+LM Studio ships only `avx2` builds and the 7950X has AVX-512, so `libggml-cpu`
+was rebuilt from LM Studio's exact commit (8172e65) twice with GCC 15, once
+AVX2 as a control and once `-march=native`, and dropped into copies of the
+server under `build/`. It was symbol-compatible and loaded correctly (confirmed
+from the process's memory map). Split 23, 2 interleaved rounds, medians:
+
+| arm | decode | long-prompt prefill | RAM |
+|---|---|---|---|
+| stock (today) | 75.2 | 1,502 | 9.2 GB |
+| stock + `--no-host` | 76.9 (+2%) | 623 (-59%) | 14.5 GB |
+| GCC 15 AVX2 + `--no-host` | 77.1 (+3%) | 652 (-57%) | 14.5 GB |
+| GCC 15 AVX-512 + `--no-host` | 72.8 (-3%) | 638 (-58%) | 14.5 GB |
+
+- The AVX-512 library alone changed nothing (stock 71.4-72.1, AVX-512
+  69.8-71.9): both loaded the RAM-side experts as plain memory-mapped `Q4_K`.
+- The SIMD kernels only engage on *repacked* weights, and llama.cpp repacks CPU
+  tensors only with `--no-host` (otherwise the GPU host buffer wins in
+  `make_cpu_buft_list`). Repacking bought ≤3% decode, within noise, for a 59%
+  slower long-prompt read and +5.3 GB RAM. Not worth it.
+- AVX-512 was no faster than AVX2 with the same repacking. Its output differs
+  slightly from stock ("one divisor" vs "one positive divisor"), which is
+  floating-point rounding, not an error.
+
+Decode here is limited by memory bandwidth, not vector width. Stock stays.
 
 ### 3. Math renders as raw brackets (small)
 
