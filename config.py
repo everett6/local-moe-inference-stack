@@ -79,11 +79,20 @@ class Runtime:
     # big model starts. Either one makes 20 fail to allocate.
     #
     # So BigModelServer treats this as a starting point: if llama-server fails to
-    # load, or loads but leaves less than `vram_headroom_mb` free, it restarts
-    # with `n_cpu_moe_step` more layers on CPU, up to all 48. You get the fastest
-    # split that actually fits right now, instead of a crash.
+    # load, crashes on a ~700-token warm-up prompt, or leaves less than
+    # `vram_headroom_mb` free, it restarts with `n_cpu_moe_step` more layers on
+    # CPU, up to all 48. You get the fastest split that actually fits right now,
+    # instead of a crash.
     n_cpu_moe: int = 20
-    n_cpu_moe_step: int = 2
+    # 1, not 2: with a step of 2 the app went 20 -> 22 -> 24, because 22 left
+    # ~720 MiB free, just under the headroom. A step of 1 lands on 23, one more
+    # layer of experts in VRAM, for ~1 s more startup (71.1 tok/s at 23).
+    n_cpu_moe_step: int = 1
+    # llama-server parallel slots. The default (-np auto) is 4. This app handles
+    # one conversation at a time, and one slot measured +2.8 tok/s decode
+    # (81.1 vs 78.3, experiments/runtime_knob_sweep.py). A second concurrent
+    # request would wait for the first instead of sharing the GPU.
+    server_slots: int = 1
     # Free VRAM to keep after the big model loads. Covers a draft hot-swap in
     # LocalMoEEngine.reload_draft (old and new draft briefly both on the GPU) and
     # a browser tab opened later. 0 = pack the card as tightly as it will load.

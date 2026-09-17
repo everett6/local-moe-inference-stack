@@ -8,8 +8,8 @@ decoding so every accept/reject decision is visible -- that's exactly the
 signal the online draft trainer needs.
 
 Why the big model goes through `llama-server` instead of llama-cpp-python
-directly: `-ot` / `--override-tensor` (the flag that actually pins MoE expert
-tensors to CPU RAM while keeping attention on GPU) is a compiled-binary
+directly: `--n-cpu-moe` (the flag that keeps some layers' MoE expert tensors in
+CPU RAM while everything else stays on the GPU) is a compiled-binary
 CLI/server flag. It isn't reliably exposed through llama-cpp-python's high
 level API across versions. Using the real llama.cpp server gets you the
 actual, working feature instead of a slower, buggier Python reimplementation.
@@ -34,6 +34,11 @@ import requests
 from llama_cpp import Llama
 
 from config import Paths, Runtime
+
+
+# ~700 tokens: longer than llama-server's default 512-token ubatch, so the warm-up
+# runs full-size cuBLAS prompt batches, same as a long real prompt would.
+_WARMUP_PROMPT = " ".join(f"item {i}: the quick brown fox jumps over the lazy dog." for i in range(64))
 
 
 def _gpu_free_mb() -> Optional[int]:
@@ -71,6 +76,7 @@ class BigModelServer:
             "--port", str(port),
             "-ngl", "999",
             "-fa", "on",
+            "-np", str(rt.server_slots),
         ]
         # stdout/stderr MUST go to a real file, not subprocess.PIPE: llama-server logs
         # every request, and nothing here was ever draining a PIPE's OS buffer (64KB).
@@ -97,13 +103,15 @@ class BigModelServer:
             outcome = self._try_launch(n)
             tried.append(f"{n}:{outcome}")
             if outcome == "ok":
+                # flush: under a process manager stdout is a pipe and fully
+                # buffered, so otherwise this never shows up in the app's log.
                 print(f"[BigModelServer] --n-cpu-moe {n} "
-                      f"({self.N_LAYERS - n}/{self.N_LAYERS} layers' experts in VRAM)")
+                      f"({self.N_LAYERS - n}/{self.N_LAYERS} layers' experts in VRAM)", flush=True)
                 return n
             if outcome == "no_headroom" and n >= self.N_LAYERS:
                 # Nothing left to move off the GPU; a running server with thin
                 # headroom beats no server.
-                print(f"[BigModelServer] --n-cpu-moe {n}, below requested VRAM headroom")
+                print(f"[BigModelServer] --n-cpu-moe {n}, below requested VRAM headroom", flush=True)
                 return n
             self.stop()
             if n >= self.N_LAYERS:
@@ -125,6 +133,22 @@ class BigModelServer:
         self.proc = subprocess.Popen(cmd, stdout=self._log_file, stderr=subprocess.STDOUT,
                                      text=True, env=self.env)
         if not self._wait_for_ready():
+            return "load_failed"
+        # Healthy is not the same as runnable. CUDA allocates the cuBLAS workspace
+        # lazily, on the first cuBLAS matmul -- so a split can load, answer /health,
+        # and then abort with "CUDA error: out of memory" on the first real prompt.
+        # Seen twice in runtime_knob_sweep.py. The warm-up has to take the same
+        # kernel path a real prompt does: a 2-token prompt passed and the next
+        # ~15-token one still crashed, because tiny batches use different (non-
+        # cuBLAS) kernels. So warm up with a prompt longer than one ubatch.
+        try:
+            r = requests.post(f"{self.base_url}/completion",
+                              json={"prompt": _WARMUP_PROMPT, "n_predict": 8, "cache_prompt": False},
+                              timeout=300)
+            r.raise_for_status()
+        except Exception:
+            return "load_failed"
+        if self.proc.poll() is not None:
             return "load_failed"
         free = _gpu_free_mb()
         if free is not None and free < self.rt.vram_headroom_mb:
@@ -209,8 +233,14 @@ class BigModelServer:
         )
         r.raise_for_status()
         timings = None
-        for raw in r.iter_lines(decode_unicode=True):
-            if not raw or not raw.startswith("data: "):
+        # Decode as UTF-8 explicitly. llama-server's text/event-stream response
+        # declares no charset, so requests falls back to ISO-8859-1 and every
+        # non-ASCII character arrives garbled ("—" became "â\x80\x94"). Splitting
+        # the raw bytes on newlines first is safe: UTF-8 never uses 0x0A inside
+        # a multi-byte character.
+        for raw_bytes in r.iter_lines():
+            raw = raw_bytes.decode("utf-8")
+            if not raw.startswith("data: "):
                 continue
             payload = raw[len("data: "):]
             if payload == "[DONE]":

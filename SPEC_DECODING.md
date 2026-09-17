@@ -349,37 +349,96 @@ trying to save. Break-even for a 4 ms/token draft rises from 83% to **89%**.
 Every hour spent on the draft model would have been spent making a 45 tok/s
 baseline slightly less slow. The baseline is now 82 tok/s, and the bar is higher.
 
-## 6. What's left, in priority order
+## 6. The app as it actually starts
 
-1. **Nothing, for speculative decoding of any kind.** All four families are now
-   measured — EAGLE3, a standalone small draft, ngram lookup, and the
-   vocab-mismatched coder draft that never ran. The self-distillation pipeline is built and
-   documented (§7) but the measurements say not to run it. It is there so the
-   decision can be revisited if the hardware changes — a card that fits the
-   whole model would steepen the curve and flip this.
-2. ~~Test the ngram strategies properly~~ — **done, §3a. Also a loss (0.94-0.99x).**
-   That was the last speculative option with a plausible path to a win, and it
-   closed. Nothing in the speculative-decoding family is worth further time on
-   this hardware.
-3. **Re-run `benchmark_all.py`** — every number in `BENCHMARK_RESULTS.md`
-   predates the MoE fix and is now ~1.74x pessimistic.
-4. **The EAGLE3 quantization diagnostic is built but not run**, and is now
-   optional rather than blocking. `experiments/eagle3_quant_diagnostic.py` tests
-   whether quantizing the target is what wrecks EAGLE3's acceptance, using
-   Qwen3-1.7B (dense, fits in VRAM at BF16) so quantization is the only variable.
-   It needs a 3.4 GB BF16 GGUF that was still downloading when this was written.
-   Worth knowing, but it no longer changes the decision: §2 caps the payoff from
-   *any* draft-head improvement at roughly 1.1x, so "yes, quantization is the
-   cause" and "no, it isn't" lead to the same recommendation.
-5. **Your call: the app's own draft model costs ~6 tok/s of VRAM.**
-   `LocalMoEEngine` keeps Qwen2.5-Coder-0.5B on the GPU for the hand-rolled
-   Python speculative loop (0.25x in `BENCHMARK_RESULTS.md`) and for online
-   LoRA training. It forces the big model from split 20 or 21 to 24: 73.8 tok/s
-   instead of ~80. Loading that draft with `n_gpu_layers=0` (CPU) would give
-   those experts back, at the price of a slower draft in a loop that's already a
-   loss. Not changed here, since the online-training feature depends on it.
+Every number above launched llama-server on its own. `app.py` doesn't. It builds
+the trainer, then the in-process draft model, then the 30B, and the first two
+take VRAM that would otherwise hold experts.
 
-## 7. The self-distillation pipeline (built, not run)
+### 6a. Trainer placement: CPU, 4 threads
+
+`OnlineDraftTrainer` loaded an fp16 copy of the draft onto the GPU, plus
+PyTorch's CUDA context. `experiments/app_startup_vram.py` measured the real
+startup order, interleaved:
+
+| trainer on | split fitted | decode tok/s | training step | startup |
+|---|---|---|---|---|
+| GPU | 28 | 60.9, 64.3 | 2.0-2.5 s | 12-16 s |
+| CPU | 24 | 71.6, 70.2 | ~10 s | 7 s |
+
+On the CPU, though, training shares cores with the 30B's CPU-side experts.
+Decode speed **while a training step runs** (`trainer_contention_result.json`):
+
+| trainer CPU threads | decode during training | training step |
+|---|---|---|
+| all (PyTorch default) | 27-43 tok/s | ~8 s |
+| **4** | **64-65 tok/s** | ~10.5 s |
+
+**Default is now `trainer_device="cpu"`, `trainer_cpu_threads=4`:** ~71 tok/s
+normally, ~64 worst case while training, versus a GPU trainer's permanent ~62.
+
+### 6b. "It loads" isn't "it runs": a crash the warm-up now catches
+
+The settings sweep crashed twice with `CUDA error: out of memory` in
+`cublas_handle`, on a server that had already loaded and answered `/health`.
+CUDA allocates the cuBLAS workspace lazily, on the first cuBLAS matmul. A 2-token
+warm-up didn't catch it, because tiny batches use different kernels, and the
+next ~15-token prompt still crashed. `BigModelServer` now warms up with a
+~700-token prompt, longer than one 512-token batch, and counts a crash there as
+"doesn't fit". Without this, lowering `vram_headroom_mb` would give a server that
+dies on your first message.
+
+The fitting step is also now 1 layer, not 2. With a step of 2 the app went
+20 → 22 → 24, because 22 left ~720 MiB free, just under the 768 MiB headroom. A
+step of 1 lands on 23: 71.1 tok/s, 1,037 MiB free, ~1 s more startup.
+
+### 6c. Runtime settings, re-tuned for a full card
+
+Every setting in `config.py` was tuned when 10 GB of the card was empty.
+`experiments/runtime_knob_sweep.py` re-checked them with every arm fitted to its
+own tightest split. Two interleaved rounds each, 30B alone, server-measured
+decode:
+
+| setting | tested | median decode tok/s | decision |
+|---|---|---|---|
+| KV cache | f16 / q8_0 | 78.3 / 76.4 (4 slots); 81.1 / 79.1 (1 slot) | **keep f16**: q8_0 is ~2 tok/s slower and didn't free a layer |
+| server slots | 4 / 1 | 78.3 / **81.1** | **1 slot** (`Runtime.server_slots`) |
+| threads | 8 pinned to one CCD / 12 / 16 / 16 pinned / 24 | 72.5 / 81.0 / **82.0** / 81.3 / 76.3 | **keep 16**, unpinned |
+| ubatch | 256 / 512 / 1024 | 80.1 / **81.3** / 78.6 | **keep 512** |
+
+Batch size is the one real tradeoff. ubatch 1024 reads prompts **54% faster**
+(2,439 vs 1,579 tok/s prefill), but its bigger compute buffer pushes one layer of
+experts to RAM, so replies are ~3 tok/s slower. For chat, replies matter more.
+For pasting long documents, 1024 would win.
+
+Run-to-run noise is about ±2-3 tok/s. Only the slot change is both consistent and
+larger than that.
+
+### 6d. Chat template, history, streaming
+
+The 30B path sent raw token ids to `/completion`, which applies no chat template.
+Asked "What is 17 times 24?", the Instruct model continued the prompt ("Also, what
+are the factors of 408? ...") instead of answering, and earlier turns were never
+sent. `BigModelServer.stream_chat` now uses `/v1/chat/completions` with the whole
+conversation and `stream=True`.
+
+Verified in the running Gradio app: the reply grew 336 → 693 → 1,027 characters
+over two seconds, with the first token after 0.12-0.27 s. A follow-up "add type
+hints to *that* class" produced the typed `LRUCache`, so history reaches the
+model.
+
+The streaming code first garbled non-ASCII: "—" arrived as "â\x80\x94", because
+llama-server's event stream declares no charset and `requests` assumed Latin-1.
+It now decodes UTF-8 explicitly. Streamed output of `café — naïve 🚀 世界`
+matches the non-streamed reply exactly.
+
+## 7. What's left
+
+Moved to [`PLAN.md`](PLAN.md), which covers the whole project, not just
+speculative decoding. For this document's topic the answer is settled: nothing
+in the speculative-decoding family is worth more time on this hardware.
+
+## 8. The self-distillation pipeline (built, not run)
 
 You asked for high-quality Hugging Face data rather than prompts I made up. That
 is built and is the right design regardless of whether it gets used:
@@ -409,4 +468,11 @@ python3 experiments/spec_headroom.py        # the batching curve
 python3 experiments/spec_breakeven.py       # break-even table
 python3 experiments/moe_offload_sweep.py    # the 1.74x
 python3 experiments/spec_shootout.py        # head-to-head
+python3 experiments/app_startup_vram.py     # trainer placement, real app startup order
+python3 experiments/app_startup_vram.py --contention-sweep   # decode while training
+python3 experiments/runtime_knob_sweep.py   # KV / slots / threads / ubatch
 ```
+
+Measure with nothing else on the GPU. Another model server (Ollama, LM Studio)
+changes how many experts fit. `runtime_knob_sweep.py` pauses and discards runs
+while one is loaded.
