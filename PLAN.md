@@ -111,6 +111,56 @@ Weighing it (you asked me to decide):
   and the GPU fell off the bus under its load. A default that might take the
   display down with it needs evidence first. `AI2_BIG_MODEL=q2_k` to use it now.
 
+## Hardware fault, 2026-09-17 evening: the machine is unstable, stop benchmarking
+
+The soak test (Plan 2 step 2) was run after a reboot and **the whole machine reset
+5.4 minutes in**, then reset again **30 seconds** into the next boot and **98
+seconds** into the one after, both sitting idle at the desktop. Boot history:
+
+| boot | started | died after |
+|---|---|---|
+| -3 (soak) | 14:15:38 | 6m50s (soak running, reset at ~5.4 min of load) |
+| -2 | 14:24:09 | 30 s (idle) |
+| -1 | 18:10:10 | 98 s (idle) |
+
+What the evidence rules out:
+- **Not heat**: `state/gpu_soak_q2_k_telemetry.csv` ends at t=324 s with the GPU at
+  **47 °C, 224 W of a 250 W limit, no throttle flags, PCIe 5.0 x16**. CPU 53 °C.
+- **Not the driver or the model**: no `Xid`, no kernel panic, no MCE, nothing in
+  the journal at all; the telemetry CSV's last block is null bytes, i.e. power was
+  cut mid-write. And it now resets while idle, with nothing of ours running.
+- **Not VRAM pressure**: 11.2 GB used of 12, steady, for the whole run.
+
+It is a platform/power fault, and it is **getting worse** (this machine ran 4-7
+hour boots yesterday, including an hour of the same Q2_K load). The first crash,
+24 hours earlier, was `Xid 79, GPU has fallen off the bus` under the same load.
+A progressively worsening power fault on a 12V-2x6 GPU connector is a known
+failure mode on RTX 40/50 cards, and a melting connector is a fire risk.
+
+**Do not run benchmarks, or leave the machine under load unattended, until this
+is fixed.** Order to work through:
+1. Power off at the wall. **Inspect both ends of the GPU power cable** (card side
+   and PSU side) for browning, melted plastic or a burnt smell. If anything is
+   discoloured, replace the cable and stop using the card until it is checked.
+2. Reseat that cable until it clicks, at both ends. Use the PSU's own 12V-2x6
+   cable, or two separate PCIe cables -- never one daisy-chained cable.
+3. In the BIOS, **disable EXPO/XMP** (DDR5 memory overclocking) and any PBO/Curve
+   Optimizer. Random resets at idle on AM5 are most often EXPO. Boot and see if
+   the machine stays up; re-enable later, one at a time, if it does.
+4. Update the motherboard BIOS (X870 AORUS Elite WiFi7 ICE) for the current AGESA.
+5. Run memtest86+ (GRUB > Advanced) for a full pass.
+6. Check the PSU: model, wattage and age. A 7950X plus an RTX 5070 wants a good
+   750 W+ unit; transient spikes trip an aging or marginal one, which resets the
+   board with nothing logged, exactly as seen here.
+
+Software-side mitigation once it boots reliably, while confirming the fix:
+- `sudo nvidia-smi -pl 175` caps the card at 175 W (min allowed; default 250).
+  If it is stable capped and unstable uncapped, it is power delivery.
+- The app's default (UD-Q3_K_XL, 13 layers of experts on the CPU) draws less GPU
+  power than Q2_K's near-all-GPU split, so it is the safer setting meanwhile.
+- Re-run `MODEL=q2_k DURATION_MIN=45 python3 experiments/gpu_soak.py` to confirm a
+  fix: it logs power, temperature, throttling, PCIe link and kernel Xids every 2 s.
+
 ## Plan 2: next session (after a full power cycle)
 
 In order; each step decides whether the next is worth running.

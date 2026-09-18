@@ -40,7 +40,11 @@ from config import BIG_MODELS, Paths  # noqa: E402
 from local_engine import _WARMUP_PROMPT, _gpu_free_mb  # noqa: E402
 
 P = Paths()
-MODEL = BIG_MODELS["q2_k"][0]
+# MODEL/SPLIT: the model whose split these knobs are being tuned for. Thread count
+# and CCD pinning matter in proportion to how many layers run on the CPU, so the
+# default model's own split is the one to tune (UD-Q3_K_XL: 13 layers on the CPU;
+# Q2_K: 3).
+MODEL = BIG_MODELS[os.environ.get("MODEL", "q2_k")][0]
 SPLIT = os.environ.get("SPLIT", "3")
 PORT = 8101
 ROUNDS = int(os.environ.get("ROUNDS", "3"))

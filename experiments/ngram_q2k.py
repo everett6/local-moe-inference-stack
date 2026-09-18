@@ -38,7 +38,7 @@ from config import BIG_MODELS, Paths  # noqa: E402
 from local_engine import _WARMUP_PROMPT  # noqa: E402
 
 P = Paths()
-MODEL = BIG_MODELS["q2_k"][0]
+MODEL = BIG_MODELS[os.environ.get("MODEL", "q2_k")][0]
 SPLIT = os.environ.get("SPLIT", "3")
 PORT = 8102
 ROUNDS = int(os.environ.get("ROUNDS", "2"))
