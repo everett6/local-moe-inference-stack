@@ -4,33 +4,34 @@
 [`EXECUTIVE_SUMMARY.md`](EXECUTIVE_SUMMARY.md) (earlier sessions) and
 [`SPEC_DECODING.md`](SPEC_DECODING.md) (this one).*
 
-> **First thing after this session:** the GPU dropped off the PCIe bus at
-> 00:41 on 2026-09-17 (kernel `NVRM: Xid 79, GPU has fallen off the bus`, then
-> `Xid 154, Node Reboot Required`). Nothing on the GPU works until the machine is
-> **fully powered off and on** (a warm reboot sometimes doesn't bring a card back
-> from Xid 79). The app now refuses to start in that state instead of silently
-> running on the CPU. See "The GPU crash" below.
+> **Before any GPU work:** the power limit resets to 250 W on every reboot, and
+> all four `NVRM: Xid 79, GPU has fallen off the bus` faults happened at 250 W.
+> Run `sudo nvidia-smi -pl 175` (the app warns if you don't), and read the
+> hardware section below -- the same fault appears in Windows, so it is the card,
+> its cable or the PSU, not this stack.
 
 ## Where things stand
 
 **Hardware:** RTX 5070 (12 GB, PCIe 5.0 x16), Ryzen 9 7950X (16 cores, 2 CCDs),
 32 GB RAM. **Model:** Qwen3-30B-A3B-Instruct-2507, served by LM Studio's bundled
-`llama-server`. Default quantization **UD-Q3_K_XL**; pick another with
-`AI2_BIG_MODEL` (`q4_k_m`, `ud-q3_k_xl`, `iq3_xxs`, `q2_k`).
+`llama-server`. Default quantization **Q2_K**; pick another with `AI2_BIG_MODEL`
+(`q4_k_m`, `ud-q3_k_xl`, `iq3_xxs`, `q2_k`).
 
 ### Speed
 
-| setup | decode tok/s | vs original | quality vs Q4_K_M |
+| setup | decode tok/s | vs original | accuracy vs Q4_K_M |
 |---|---|---|---|
 | Original config (every MoE expert in RAM, Q4_K_M) | 47 | 1.0x | reference |
 | Q4_K_M, fitted split + this session's settings | 82 | 1.7x | reference |
-| **UD-Q3_K_XL (default)** | **115** | **2.4x** | no measurable loss |
-| Q2_K (`AI2_BIG_MODEL=q2_k`) | ~189 | 4.0x | 2x UD-Q3_K_XL's drift; accuracy unfinished |
+| UD-Q3_K_XL (`AI2_BIG_MODEL=ud-q3_k_xl`) | 115 | 2.4x | no measurable loss |
+| **Q2_K (default)** | **174-190** | **3.7-4.0x** | HumanEval -3.0 pts, GSM8K +0.4 |
+| Q2_K + n-gram drafting, code-edit prompts | **213** | 4.5x | same tokens, checked |
 
-"Decode" for Q4_K_M and UD-Q3_K_XL is averaged over 414 real replies (HumanEval +
-GSM8K, `model_quality_eval.py`); Q2_K's is the app request path on short prompts
-(`penalty_quality.py`, `request_overhead_ab.py`). Against the 90 tok/s baseline
-you gave, UD-Q3_K_XL is 1.28x and Q2_K 2.1x.
+Decode is averaged over 414 real replies (HumanEval + GSM8K, `model_quality_eval.py`).
+Against the 90 tok/s baseline you gave, Q2_K is 2.1x. On top of the model choice,
+two settings from this session: `-ub 1024` (prompt reading +32%, decode unchanged)
+and n-gram speculation (`ngram-mod`, 12-token match: +22% on code edits, +5% on
+prose, 89% of drafted tokens accepted).
 
 ## Plan 1 (this session): 2x decode without losing measurable quality
 
@@ -99,17 +100,23 @@ Two bugs it exposed, both fixed and tested (`tests/test_server_failures.py`,
   the chat. `stream_chat` now raises `ServerUnavailable` with the server log's
   tail, and the app marks the reply incomplete and shows the error.
 
-### Decision: default UD-Q3_K_XL, Q2_K on probation
+### Decision: default Q2_K, UD-Q3_K_XL one env var away
 
-Weighing it (you asked me to decide):
-- **UD-Q3_K_XL**: 1.39x Q4_K_M, statistically identical accuracy on 414 graded
-  problems, 4.4 GiB smaller, ran ~20 minutes of sustained eval without a fault.
-  Strictly better than what the app ran before. Default.
-- **Q2_K**: the only file at 2x (~189 tok/s). But its accuracy run never
-  finished, so the rule fixed before that run (within 5 points of Q4_K_M on
-  HumanEval and GSM8K) is unmet, not failed; it has twice UD-Q3_K_XL's drift;
-  and the GPU fell off the bus under its load. A default that might take the
-  display down with it needs evidence first. `AI2_BIG_MODEL=q2_k` to use it now.
+Q2_K's accuracy run finished on the second attempt (the first was interrupted by
+the GPU fault): HumanEval 88.4%, GSM8K 96.0%, against Q4_K_M's 91.5% / 95.6%.
+That clears the rule fixed before the run -- within 5 points on both -- and it is
+the only file that reaches the 2x target, so it is the default.
+
+- **The caveat, stated plainly:** on HumanEval, Q2_K lost 7 problems Q4_K_M solved
+  and gained 2 (McNemar p = 0.18). Not statistically significant, but it is the
+  one consistent direction in the data, and code is this box's main use.
+- **`AI2_BIG_MODEL=ud-q3_k_xl`** is the quality option: 115 tok/s, and against
+  Q4_K_M it lost 3 HumanEval problems and gained 4 (p = 1.0), lost 1 GSM8K and
+  gained 3 (p = 0.63) -- i.e. no measurable loss at all, at 1.39x the speed.
+- **Still to finish:** the GSM8K half of the accuracy run *with n-gram speculation
+  and ubatch 1024 enabled* (the GPU fell off the bus mid-run). Its HumanEval half
+  scored 144/164 against 145 without them, so speculation is on by default; the
+  math half is the outstanding check.
 
 ## Hardware fault, 2026-09-17 evening: the machine is unstable, stop benchmarking
 
