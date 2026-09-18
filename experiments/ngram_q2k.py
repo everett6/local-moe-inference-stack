@@ -16,9 +16,15 @@ So this uses two prompt sets and reports them separately:
   edit    paste ~40-80 lines of code and ask for a modified version of all of it
   fresh   write/explain from scratch (must not get slower)
 
-N-gram drafting is lossless under greedy decoding: every drafted token is
-checked against the model's own choice, so output text must be identical to the
-baseline's. That is verified here too; a mismatch would be a bug, not noise.
+N-gram drafting was assumed lossless under greedy decoding: every drafted token
+is checked against the model's own choice, so the output text should be
+identical to the baseline's. Measured later, that is FALSE on this build --
+see experiments/spec_determinism.py. Checking k drafted tokens is a k-token
+batch, batch shape changes the order of floating-point reductions, and a
+near-tied argmax can land either way; with speculation on, the same prompt
+answered three times gives three different replies. What is true is the thing
+that matters: across 414 graded problems it costs no accuracy (HumanEval
+147/164 with speculation, 145/164 without; GSM8K 240/250 either way).
 
 Q2_K, --n-cpu-moe 3, repeat_penalty 1.0 (as the app sends), 512 max tokens,
 2 interleaved rounds. Draft acceptance is read from the server log.

@@ -24,8 +24,25 @@
 | Original config (every MoE expert in RAM, Q4_K_M) | 47 | 1.0x | reference |
 | Q4_K_M, fitted split + this session's settings | 82 | 1.7x | reference |
 | UD-Q3_K_XL (`AI2_BIG_MODEL=ud-q3_k_xl`) | 115 | 2.4x | no measurable loss |
-| **Q2_K (default)** | **174-190** | **3.7-4.0x** | HumanEval -3.0 pts, GSM8K +0.4 |
-| Q2_K + n-gram drafting, code-edit prompts | **213** | 4.5x | same tokens, checked |
+| **Q2_K (default)** | **191-212** | **4.1-4.5x** | HumanEval -1.9 pts, GSM8K +0.4 |
+| Q2_K + n-gram drafting, code-edit prompts | **213** | 4.5x | no accuracy cost, measured (not the same tokens -- see below) |
+
+Neither accuracy difference is significant: HumanEval 147/164 vs 150/164
+(p=0.51, McNemar), GSM8K 240/250 vs 239/250 (p=1.00).
+
+**Correction (2026-09-18):** this table used to claim n-gram drafting produced
+"same tokens, checked". It does not. `experiments/spec_determinism.py` measured
+one server answering one prompt three times: with speculation off, three
+identical replies; with it on, three *different* ones. Verifying k drafted
+tokens is a k-token batch, batch shape changes the order of floating-point
+reductions, and a near-tied argmax can land either way -- so the model's "own
+choice", which the draft is checked against, is itself computed slightly
+differently while checking. The differences are not always cosmetic (one reply
+guarded a division by zero and the other did not). What is measured, on 414
+graded problems, is that it costs no accuracy: Q2_K scores HumanEval 147/164
+with speculation and 145/164 without, GSM8K 240/250 either way
+(`model_quality_eval_result.json` vs `..._nospec.json`). The setting stays; the
+claim that it is bit-identical is withdrawn.
 
 Decode is averaged over 414 real replies (HumanEval + GSM8K, `model_quality_eval.py`).
 Against the 90 tok/s baseline you gave, Q2_K is 2.1x. On top of the model choice,
@@ -103,13 +120,18 @@ Two bugs it exposed, both fixed and tested (`tests/test_server_failures.py`,
 ### Decision: default Q2_K, UD-Q3_K_XL one env var away
 
 Q2_K's accuracy run finished on the second attempt (the first was interrupted by
-the GPU fault): HumanEval 88.4%, GSM8K 96.0%, against Q4_K_M's 91.5% / 95.6%.
-That clears the rule fixed before the run -- within 5 points on both -- and it is
-the only file that reaches the 2x target, so it is the default.
+the GPU fault). In the **shipped configuration** -- n-gram speculation on, ubatch
+1024, 175 W cap -- it scores HumanEval 147/164 (89.6%) and GSM8K 240/250 (96.0%),
+against Q4_K_M's 150/164 (91.5%) and 239/250 (95.6%). That clears the rule fixed
+before the run -- within 5 points on both -- and it is the only file that reaches
+the 2x target, so it is the default.
 
-- **The caveat, stated plainly:** on HumanEval, Q2_K lost 7 problems Q4_K_M solved
-  and gained 2 (McNemar p = 0.18). Not statistically significant, but it is the
-  one consistent direction in the data, and code is this box's main use.
+- **The caveat, stated plainly:** on HumanEval, Q2_K lost 6 problems Q4_K_M solved
+  and gained 3 (McNemar exact p = 0.51). Not statistically significant, but it is
+  the one consistent direction in the data, and code is this box's main use.
+  (GSM8K: lost 2, gained 3, p = 1.00.) These numbers replace an earlier
+  88.4% / "lost 7, gained 2", which came from the pre-speculation run now kept as
+  `model_quality_eval_result_nospec.json` (145/164).
 - **`AI2_BIG_MODEL=ud-q3_k_xl`** is the quality option: 115 tok/s, and against
   Q4_K_M it lost 3 HumanEval problems and gained 4 (p = 1.0), lost 1 GSM8K and
   gained 3 (p = 0.63) -- i.e. no measurable loss at all, at 1.39x the speed.
@@ -158,6 +180,37 @@ same fault on both systems. While there, check Event Viewer > System for
 Xid 79), and watch the GPU **memory junction** temperature in HWiNFO64 -- a
 memory hotspot above ~100 C with a cool core means failing thermal pads, which
 behaves exactly like this: fine at low load, hangs when sustained.
+
+### Update 2026-09-18, from the always-on telemetry log
+
+`tools/gpu_watchdog.py` has been sampling every 5 s since 2026-09-17 20:19. Three
+things came out of reading it, and one of them takes an event off the list.
+
+**The 22:21:03 shutdown was not spontaneous.** The journal shows
+`sudo /home/everett/Downloads/NVIDIA-Linux-x86_64-595.99.02.run --no-cc-version-check`
+at 22:20:48, and `/var/log/nvidia-installer.log` ends fifteen seconds later on
+"You appear to be running an X server... Process 39046 has no controlling
+terminal". Tearing the driver out from under a running X server is its own way to
+hard-lock a machine, so this one belongs in the explained column, not the fault
+column. Nothing was installed: there are **no 595.99.02 files** on the system, the
+packaged open driver **595.91.07** is intact, and DKMS has it built for both
+installed kernels. (If that install is retried, do it from a TTY with the display
+manager stopped -- or just don't: the packaged driver is the supported path for
+Blackwell, and the `.run` file would replace it with something apt cannot manage.)
+
+**One earlier boot died of a GPU hang, and it was logged.** Boot -2 ends at
+20:16:10 with `nvidia-modeset: ERROR: GPU:0: Error while waiting for GPU progress:
+0x0000ca7e:6 2:0:4048:4040` repeating every five seconds for at least 25 seconds
+before the machine goes. That is a display/GPU hang the driver noticed -- the
+Linux counterpart of the Minecraft freeze described above, and a different
+signature from the silent power-cut resets.
+
+**The current boot is the longest clean run under load since the fault appeared.**
+Since 00:26:34, at a 175 W cap: **zero Xids**, and roughly 45 minutes of sustained
+GPU load across four experiments (headroom, context, knob re-tune, determinism)
+plus the app itself, with no fault of any kind. Every crash on record is at 250 W
+or explained; nothing has failed at 175 W yet. The cap stays on, and the physical
+checks below are still the thing that actually settles it.
 
 **Do not run benchmarks, or leave the machine under load unattended, until this
 is fixed.** Order to work through:
@@ -220,10 +273,13 @@ B2. **Move the monitor to the motherboard port.** The 7950X's integrated graphic
     move, `nvidia-smi` should list no desktop processes at all.
 B3. **Firefox holds ~390 MiB** -- more than the desktop. Close it during runs, or
     turn off "Use hardware acceleration when available".
-B4. **Re-measure the fitted split.** With ~764 MiB freed, Q2_K should reach split
-    0-1 (~198-200 tok/s measured bare) and UD-Q3_K_XL should gain 3-4 layers.
-B5. **Re-check `vram_headroom_mb`** (512): with nothing but the model on the card
-    the margin can probably drop to 256, worth another layer.
+B4. **DONE. Re-measured the fitted split.** Q2_K reaches `--n-cpu-moe 0` --
+    every one of the 48 layers' experts in VRAM, nothing on the CPU -- at
+    198-201 tok/s with 437 MiB still free.
+B5. **DONE. `vram_headroom_mb` is 256** (`experiments/headroom_recheck.py`).
+    It is the largest margin that still fits every layer; 128 and 0 land on the
+    same split with the same free VRAM, so they buy nothing. 512 cost one layer
+    (196.2 vs 201.1 tok/s).
 
 ### Phase C -- finish the measurements that were queued
 
@@ -236,8 +292,11 @@ C3. **CPU/GPU knobs** at the default model's split:
     `MODEL=ud-q3_k_xl SPLIT=13 python3 experiments/cpu_gpu_knobs.py` (threads, one-CCD
     L3 pinning, polling, CUDA graphs, ubatch). Worth more at 13 CPU layers than at 2.
 C4. **N-gram speculation for code edits**: `MODEL=... SPLIT=... python3 experiments/ngram_q2k.py`.
-C5. **Quick path**: `python3 experiments/quick_path_penalty.py`, then `app.py` in the
-    browser -- a chat, a code request, a quick question, a 3-turn conversation.
+C5. **DONE. Quick path measured and turned off** (it corrected 22 of 24 answers
+    and saved no time), and the app was driven in the browser: a maths question,
+    a code request, a three-turn conversation. 196.6 / 190.8 / 208.6 tok/s,
+    0.04-0.09 s to first token, history carried across turns. That pass found
+    two real bugs, both since fixed -- see "Fixed this session".
 C6. Update docs, commit, push, refresh `BENCHMARK_RESULTS.md`.
 
 ### Phase E -- the one outside project worth trying: expert caching (researched 2026-09-17)
@@ -281,8 +340,13 @@ Checked and not worth it:
 
 ### Phase D -- smaller things, once the above is done
 
-- Math renders as raw brackets: set `gr.Chatbot(latex_delimiters=...)`.
-- A per-use "long document" profile (ubatch 1024: +54% prefill, -3 tok/s decode).
+- **DONE. Math renders as maths.** `gr.Chatbot(latex_delimiters=...)`; verified in
+  the browser (17 x 24 comes out as stacked long multiplication, not
+  `[ 17 \times 24 = 408 ]`). Note `type="messages"` must NOT be passed: Gradio 6
+  removed the argument and the app would not start with it.
+- **DONE. ubatch 1024 is the default**, and re-checked at the new operating point
+  (`experiments/knobs_at_8192.py`): a larger ubatch grows the compute buffer,
+  which competes with the experts for VRAM and can cost a layer.
 - Watch llama.cpp PR #27861 (`--moe-expert-cache`), the one upstream change that
   would beat any of this: +14.6% reported on this exact model.
 
