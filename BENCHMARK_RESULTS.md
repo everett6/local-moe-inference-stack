@@ -1,6 +1,17 @@
-# AI2 3-way benchmark results
+# AI2 3-way benchmark results (historical: 2026-09-16)
 
-> **CORRECTION (superseded in part by `SPEC_DECODING.md`).** Two findings below
+> **Read this as a record of where the project started, not as current numbers.**
+> Everything below was measured with every MoE expert pinned to CPU via `-ot`,
+> which left 10 of the card's 12 GB unused, so the whole table is ~4.5x behind
+> the current default configuration. For what the stack does now see
+> [`README.md`](README.md) (summary), [`PLAN.md`](PLAN.md) (state and evidence)
+> and [`SPEC_DECODING.md`](SPEC_DECODING.md) (speculation in detail).
+>
+> The same five prompts at the same 128-token ceiling can be re-run on the
+> current configuration with `python3 experiments/rerun_original_benchmark.py`,
+> which prints a before/after table ready to paste in here.
+>
+> **CORRECTION (superseded in part by `SPEC_DECODING.md`).** Three findings below
 > are wrong:
 >
 > 1. **"Native speculative decoding is only ~1.02x"** — speculative decoding was
@@ -14,6 +25,20 @@
 >    all MoE experts pinned to CPU, which left 10 of the card's 12 GB unused.
 >    `--n-cpu-moe 20` raises the baseline from 47.1 to 81.7 tok/s. Applied in
 >    `config.py`; this file has not been re-measured.
+> 3. **"Speculative decoding isn't a productive place to keep optimizing"** was
+>    the conclusion drawn from finding 1, and it is wrong twice over. The run it
+>    rests on had no speculation in it at all, and n-gram drafting -- which needs
+>    no draft model, so no vocabulary to mismatch -- is now on by default and
+>    worth +8% on code edits (196.5 vs 181.2 tok/s at the current split) and +22%
+>    in `experiments/ngram_q2k.py`. What *was* right is narrower and still holds:
+>    a **separate 0.5B draft model** does not pay on this hardware, re-tested at
+>    Q2_K in `experiments/draft_model_q2k.py` (0.96x at best).
+>
+> One later caveat on speculation, from `experiments/spec_determinism.py`: it is
+> not bit-identical. The same prompt answered three times gives three different
+> replies with it on, one reply with it off. It costs no measured accuracy
+> (HumanEval 147/164 with, 145/164 without, across 414 graded problems), but it
+> is not the "same tokens" guarantee it was once described as.
 >
 > The thread-count and flash-attention tuning below still stands.
 

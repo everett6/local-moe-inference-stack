@@ -41,7 +41,22 @@ def gpu_telemetry() -> str:
             h = pynvml.nvmlDeviceGetHandleByIndex(0)
             mem = pynvml.nvmlDeviceGetMemoryInfo(h)
             util = pynvml.nvmlDeviceGetUtilizationRates(h)
+            # The power cap resets to the card's stock limit on every reboot, and
+            # all four "GPU has fallen off the bus" faults happened at that limit,
+            # none at 175 W. local_engine warns about it once, at startup, in the
+            # terminal -- which is exactly where nobody is looking. It belongs on
+            # the panel the user is actually watching, every refresh.
+            warn = ""
+            try:
+                limit_w = pynvml.nvmlDeviceGetPowerManagementLimit(h) / 1000.0
+                if rt.max_power_limit_w and limit_w > rt.max_power_limit_w:
+                    warn = (f"**⚠ GPU power limit is {limit_w:.0f} W** (every crash on record "
+                            f"happened at this limit). Run `sudo nvidia-smi -pl "
+                            f"{rt.max_power_limit_w:.0f}` -- it resets on every reboot.\n\n")
+            except Exception:
+                pass
             return (
+                warn +
                 f"**VRAM:** `{mem.used/1024**3:.2f} / {mem.total/1024**3:.2f} GB`\n"
                 f"**GPU Core:** `{util.gpu}%`\n"
                 f"**RAM:** `{ram.used/1024**3:.2f} / {ram.total/1024**3:.2f} GB`\n"

@@ -269,6 +269,43 @@ def test_a_single_message_too_long_is_still_refused():
     assert "Prompt too long" in route_text, route_text
 
 
+def test_power_cap_warning_shows_on_the_panel_the_user_watches():
+    """The cap resets to the card's stock limit on every reboot.
+
+    All four "GPU has fallen off the bus" faults happened at that stock limit and
+    none at 175 W, but the only warning was one line in the terminal at startup.
+    It happened again on 2026-09-18: the machine came back at 250 W. So the
+    telemetry panel carries it on every refresh.
+    """
+    import app                          # already stubbed and imported by the tests above
+
+    class FakeNVML:
+        def __init__(self, milliwatts):
+            self.mw = milliwatts
+
+        nvmlInit = staticmethod(lambda: None)
+        nvmlDeviceGetHandleByIndex = staticmethod(lambda i: object())
+        nvmlDeviceGetMemoryInfo = staticmethod(
+            lambda h: types.SimpleNamespace(used=11 * 1024**3, total=12 * 1024**3))
+        nvmlDeviceGetUtilizationRates = staticmethod(lambda h: types.SimpleNamespace(gpu=42))
+
+        def nvmlDeviceGetPowerManagementLimit(self, h):
+            return self.mw
+
+    real = app.pynvml
+    try:
+        app.pynvml = FakeNVML(250_000)
+        over = app.gpu_telemetry()
+        app.pynvml = FakeNVML(175_000)
+        capped = app.gpu_telemetry()
+    finally:
+        app.pynvml = real
+
+    assert "250 W" in over and "nvidia-smi -pl 175" in over, over
+    assert "VRAM:" in over, "the normal telemetry must still be there"
+    assert "power limit is" not in capped, capped
+
+
 def test_port_in_use_fails_immediately_without_launching():
     """An orphaned llama-server holding the port must be named, not mistaken for
     a VRAM problem.
