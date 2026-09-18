@@ -136,10 +136,11 @@ the 2x target, so it is the default.
 - **`AI2_BIG_MODEL=ud-q3_k_xl`** is the quality option: 115 tok/s, and against
   Q4_K_M it lost 3 HumanEval problems and gained 4 (p = 1.0), lost 1 GSM8K and
   gained 3 (p = 0.63) -- i.e. no measurable loss at all, at 1.39x the speed.
-- **Still to finish:** the GSM8K half of the accuracy run *with n-gram speculation
-  and ubatch 1024 enabled* (the GPU fell off the bus mid-run). Its HumanEval half
-  scored 144/164 against 145 without them, so speculation is on by default; the
-  math half is the outstanding check.
+- **DONE. The accuracy run with n-gram speculation and ubatch 1024 finished**
+  (`experiments/model_quality_eval_result.json`, 2026-09-18): HumanEval 147/164
+  and GSM8K 240/250, against 145/164 and 240/250 without them
+  (`..._nospec.json`). The earlier run that "fell off the bus mid-run" was
+  restarted and completed; the 144/164 quoted here was from that partial one.
 
 ## Hardware fault, 2026-09-17 evening: the machine is unstable, stop benchmarking
 
