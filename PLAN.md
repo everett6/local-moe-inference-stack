@@ -312,13 +312,17 @@ C5. **DONE. Quick path measured and turned off** (it corrected 22 of 24 answers
     a code request, a three-turn conversation. 196.6 / 190.8 / 208.6 tok/s,
     0.04-0.09 s to first token, history carried across turns. That pass found
     two real bugs, both since fixed -- see "Fixed this session".
-C6. **Docs updated, committed, pushed.** `BENCHMARK_RESULTS.md` is now framed as
-    what it is -- the 2026-09-16 starting point, ~4.5x behind the current
-    configuration -- with its third wrong conclusion ("speculative decoding isn't
-    a productive place to keep optimizing") corrected. **Still to run:**
-    `python3 experiments/rerun_original_benchmark.py`, which re-runs its five
-    prompts at the same 128-token ceiling on the current default and prints the
-    before/after table ready to paste in. Blocked only on the 175 W cap.
+C6. **DONE. Docs updated, committed, pushed, and `BENCHMARK_RESULTS.md`
+    re-measured.** `experiments/rerun_original_benchmark.py` re-ran its five
+    prompts verbatim at the same 128-token ceiling on the current default:
+    **46.19 -> 188.5 tok/s, 4.1x**, with the table in that file. Its third wrong
+    conclusion ("speculative decoding isn't a productive place to keep
+    optimizing") is corrected, and the re-run makes the reason sharper than the
+    correction did: speculation measures **0.99x on those five prompts**, because
+    every one of them is write-from-scratch, which is exactly the workload n-gram
+    drafting cannot help. The original conclusion would have looked confirmed
+    even if speculation had engaged. The prompt set was the problem, not just the
+    measurement.
 
 ### Phase E -- the one outside project worth trying: expert caching (researched 2026-09-17)
 

@@ -1,0 +1,146 @@
+{
+ "current": [
+  {
+   "n_cpu_moe": 2,
+   "per_prompt": [
+    {
+     "prompt": "Write a Python function that reverses a singly linked list.",
+     "tokens": 128,
+     "seconds": 0.68,
+     "tps": 188.5563945660404
+    },
+    {
+     "prompt": "Explain the CAP theorem in two sentences.",
+     "tokens": 88,
+     "seconds": 0.47,
+     "tps": 186.84643558575294
+    },
+    {
+     "prompt": "What is 17 times 24?",
+     "tokens": 128,
+     "seconds": 0.67,
+     "tps": 189.74460080256037
+    },
+    {
+     "prompt": "Summarize the plot of Romeo and Juliet in one short paragraph.",
+     "tokens": 128,
+     "seconds": 0.68,
+     "tps": 189.18791089249396
+    },
+    {
+     "prompt": "Fix this bug: `def add(a, b): return a - b`",
+     "tokens": 127,
+     "seconds": 0.68,
+     "tps": 187.50396784971338
+    }
+   ]
+  },
+  {
+   "n_cpu_moe": 2,
+   "per_prompt": [
+    {
+     "prompt": "Write a Python function that reverses a singly linked list.",
+     "tokens": 128,
+     "seconds": 0.67,
+     "tps": 192.42275278787497
+    },
+    {
+     "prompt": "Explain the CAP theorem in two sentences.",
+     "tokens": 88,
+     "seconds": 0.47,
+     "tps": 187.1651498490981
+    },
+    {
+     "prompt": "What is 17 times 24?",
+     "tokens": 128,
+     "seconds": 0.68,
+     "tps": 187.36185722440976
+    },
+    {
+     "prompt": "Summarize the plot of Romeo and Juliet in one short paragraph.",
+     "tokens": 128,
+     "seconds": 0.68,
+     "tps": 187.5402918595792
+    },
+    {
+     "prompt": "Fix this bug: `def add(a, b): return a - b`",
+     "tokens": 127,
+     "seconds": 0.67,
+     "tps": 188.36246277245814
+    }
+   ]
+  }
+ ],
+ "current, no spec": [
+  {
+   "n_cpu_moe": 2,
+   "per_prompt": [
+    {
+     "prompt": "Write a Python function that reverses a singly linked list.",
+     "tokens": 128,
+     "seconds": 0.67,
+     "tps": 189.9216869793846
+    },
+    {
+     "prompt": "Explain the CAP theorem in two sentences.",
+     "tokens": 88,
+     "seconds": 0.46,
+     "tps": 190.3814118512429
+    },
+    {
+     "prompt": "What is 17 times 24?",
+     "tokens": 128,
+     "seconds": 0.67,
+     "tps": 190.33315737429461
+    },
+    {
+     "prompt": "Summarize the plot of Romeo and Juliet in one short paragraph.",
+     "tokens": 128,
+     "seconds": 0.68,
+     "tps": 189.2807921401151
+    },
+    {
+     "prompt": "Fix this bug: `def add(a, b): return a - b`",
+     "tokens": 127,
+     "seconds": 0.68,
+     "tps": 187.78648528759427
+    }
+   ]
+  },
+  {
+   "n_cpu_moe": 2,
+   "per_prompt": [
+    {
+     "prompt": "Write a Python function that reverses a singly linked list.",
+     "tokens": 128,
+     "seconds": 0.68,
+     "tps": 189.5487554939522
+    },
+    {
+     "prompt": "Explain the CAP theorem in two sentences.",
+     "tokens": 88,
+     "seconds": 0.47,
+     "tps": 188.917417327162
+    },
+    {
+     "prompt": "What is 17 times 24?",
+     "tokens": 128,
+     "seconds": 0.68,
+     "tps": 187.3761194991202
+    },
+    {
+     "prompt": "Summarize the plot of Romeo and Juliet in one short paragraph.",
+     "tokens": 128,
+     "seconds": 0.67,
+     "tps": 190.84680816168301
+    },
+    {
+     "prompt": "Fix this bug: `def add(a, b): return a - b`",
+     "tokens": 127,
+     "seconds": 0.67,
+     "tps": 190.8368269996544
+    }
+   ]
+  }
+ ]
+}

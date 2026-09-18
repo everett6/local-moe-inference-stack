@@ -7,9 +7,10 @@
 > [`README.md`](README.md) (summary), [`PLAN.md`](PLAN.md) (state and evidence)
 > and [`SPEC_DECODING.md`](SPEC_DECODING.md) (speculation in detail).
 >
-> The same five prompts at the same 128-token ceiling can be re-run on the
-> current configuration with `python3 experiments/rerun_original_benchmark.py`,
-> which prints a before/after table ready to paste in here.
+> The same five prompts at the same 128-token ceiling, re-run on the current
+> configuration (`python3 experiments/rerun_original_benchmark.py`), are in
+> [Re-run on the current stack](#re-run-on-the-current-stack-2026-09-18) at the
+> bottom: **4.1x**, 46.19 -> 188.5 tok/s.
 >
 > **CORRECTION (superseded in part by `SPEC_DECODING.md`).** Three findings below
 > are wrong:
@@ -127,3 +128,36 @@ points).
 | `What is 17 times 24?` | 128 | 2.66 | 48.16 |
 | `Summarize the plot of Romeo and Juliet in one s...` | 128 | 2.72 | 47.13 |
 | `Fix this bug: `def add(a, b): return a - b`` | 96 | 2.05 | 46.77 |
+
+## Re-run on the current stack (2026-09-18)
+
+The same five prompts, the same 128-token ceiling, on the current default
+(Q2_K, `--n-cpu-moe 2`, ubatch 1024, n-gram speculation, `n_ctx` 8192, 175 W
+cap). Medians of 2 interleaved rounds, `experiments/rerun_original_benchmark.py`:
+
+| Prompt | 2026-09-16 tok/s | now | no spec | speedup |
+|---|---|---|---|---|
+| `Write a Python function that reverses a sing...` | 45.79 | **190.5** | 189.7 | **4.2x** |
+| `Explain the CAP theorem in two sentences.` | 45.35 | **187.0** | 189.6 | **4.1x** |
+| `What is 17 times 24?` | 47.15 | **188.6** | 188.9 | **4.0x** |
+| `Summarize the plot of Romeo and Juliet in on...` | 47.36 | **188.4** | 190.1 | **4.0x** |
+| `Fix this bug: `def add(a, b): return a - b`` | 45.30 | **187.9** | 189.3 | **4.1x** |
+| **average** | **46.19** | **188.5** | 189.5 | **4.1x** |
+
+Almost none of that 4.1x is speculation. Nearly all of it is the MoE split
+(`--n-cpu-moe`, fitted at launch to the VRAM actually free) and the move from
+Q4_K_M to Q2_K; `-ub 1024` and the 175 W cap account for the rest.
+
+**Speculation measures 0.99x here, and that is the expected result.** N-gram
+drafting proposes tokens that already appeared in the context, so it can only
+pay when the reply repeats the prompt -- editing, refactoring, adding types to
+pasted code. All five of these prompts are write-from-scratch, which is the one
+workload where it has nothing to draft. On edit prompts the same setting is
+worth +8% at this split and +22% in `experiments/ngram_q2k.py`.
+
+That is worth saying plainly, because it is the trap this file fell into the
+first time. The original conclusion -- "speculative decoding isn't a productive
+place to keep optimizing" -- was reached from a run in which speculation never
+engaged at all. Had it engaged, this prompt set would *still* have shown ~1.0x,
+and the conclusion would have looked confirmed while remaining wrong. The
+prompt set, not just the measurement, was the problem.
