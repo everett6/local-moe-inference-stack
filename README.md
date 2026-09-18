@@ -23,6 +23,12 @@ is what pays for a ~5,000-token document being answerable at all. A conversation
 that outgrows the window drops its oldest turns and says so, rather than
 refusing every later message.
 
+> **Before any GPU work:** this card crashes at its stock 250 W limit (four
+> `Xid 79` bus drops, none at 175 W) and **the cap resets on every reboot**. Run
+> `sudo nvidia-smi -pl 175`, or install it once with
+> [`tools/ai2-gpu-power-cap.service`](tools/ai2-gpu-power-cap.service) (see
+> PLAN.md, Phase A4). The dashboard warns whenever the limit is above the cap.
+
 > **Start here:** [`PLAN.md`](PLAN.md): current state, what's settled, and the
 > prioritized next steps.
 

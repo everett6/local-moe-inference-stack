@@ -258,9 +258,24 @@ A3. **Physical, regardless of A1/A2** (the cap hides a symptom, it doesn't fix a
     own cable or two separate PCIe cables. Then, if resets continue: disable
     EXPO/XMP and PBO in the BIOS, update the BIOS, run memtest86+ for a full pass,
     and check the PSU's wattage and age.
-A4. **Make the cap survive reboots** once A1/A2 say it helps (needs root: it
-    resets to 250 W on every boot, and persistence mode is off):
-    a systemd unit running `nvidia-smi -pm 1` then `nvidia-smi -pl 175` at boot.
+A4. **Make the cap survive reboots.** The cap resets to 250 W on every boot and
+    this has already caught us out twice -- 2026-09-17 and 2026-09-18, both times
+    leaving the machine uncapped until someone noticed. The unit is written and
+    verified (`systemd-analyze verify` passes): [`tools/ai2-gpu-power-cap.service`](tools/ai2-gpu-power-cap.service).
+    Installing it needs root, so it is one command for the owner to run:
+
+    ```
+    sudo cp /home/everett/AI2/tools/ai2-gpu-power-cap.service /etc/systemd/system/ \
+      && sudo systemctl daemon-reload \
+      && sudo systemctl enable --now ai2-gpu-power-cap.service \
+      && nvidia-smi --query-gpu=power.limit --format=csv
+    ```
+
+    That last line should print `175.00 W`. It sets persistence mode first,
+    because without it the driver unloads when nothing holds the device open and
+    forgets the limit again. Until it is installed, `sudo nvidia-smi -pl 175`
+    has to be re-run by hand after every boot; the app's dashboard warns on
+    every refresh while the limit is above `Runtime.max_power_limit_w`.
 
 ### Phase B -- take the desktop off the GPU (~764 MiB, ~3-4 layers of experts)
 
