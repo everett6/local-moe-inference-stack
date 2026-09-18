@@ -261,7 +261,7 @@ def _run_inference(message: str, max_tokens: float, history):
     ) + (
         f"* Time to first token: `{first_token_s:.2f}s`" if first_token_s is not None else "* (empty reply)"
     ) + (
-        f"\n* Dropped the {len(dropped)} oldest turn(s) to fit the {rt.n_ctx}-token context window"
+        f"\n* Dropped the {len(dropped)} oldest exchange(s) to fit the {rt.n_ctx}-token context window"
         if dropped else ""
     )
     yield all_messages, route_text, gpu_telemetry(), trainer_panel()
@@ -279,7 +279,13 @@ def _stream_with_trimming(model_messages, max_tokens_i, dropped):
     Only a refusal made *before any token arrives* is retried, and only by
     dropping history: if the newest message alone does not fit, nothing can be
     dropped that would help, and PromptTooLong is raised for the app to show.
-    `dropped` collects how many turns were let go, for the route panel.
+    `dropped` collects how many exchanges were let go, for the route panel.
+
+    Whole exchanges, not single messages: dropping one at a time leaves the
+    conversation starting with an assistant turn half the time -- a reply with
+    no question in front of it. Qwen3's chat template renders that without
+    complaining, which is the problem; it just quietly hands the model a
+    malformed conversation.
     """
     msgs = list(model_messages)
     while True:
@@ -292,7 +298,9 @@ def _stream_with_trimming(model_messages, max_tokens_i, dropped):
         except PromptTooLong:
             if started or len(msgs) <= 1:
                 raise
-            msgs = msgs[1:]                      # oldest first
+            msgs = msgs[1:]                          # the oldest user message
+            while len(msgs) > 1 and msgs[0].get("role") != "user":
+                msgs = msgs[1:]                      # ...and the reply to it
             dropped.append(1)
 
 

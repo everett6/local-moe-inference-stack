@@ -449,7 +449,22 @@ Measured with Q2_K: llama-server allocates nothing after its warm-up, even
 through a 2,950-token prompt. The margin was cut to 512 MiB; the contention test
 in Plan 2 step 4 decides whether it can go lower.
 
-### 2. Is the quick path worth having at all? (measure, then decide)
+### 2. Is the quick path worth having at all? (ANSWERED: no -- off since 2026-09-18)
+
+**Measured and turned off.** `experiments/quick_path_penalty.py` settled it: the
+30B corrected **22 of 24** quick answers, and at ~200 tok/s it starts streaming
+faster than the CPU draft finishes, so the fast path saved no time either. The
+hypothesis that the corrections were an artefact of the sampling mismatch (the
+draft samples at repeat_penalty 1.0, the 30B was at 1.1) was wrong: 22/24 at
+both settings. `Runtime.quick_path_enabled = False`; `quick`-bucket prompts now
+route straight to the 30B and the panel says so.
+
+The draft model is still loaded -- it costs 679 MiB of RAM and 0.31 s of startup
+(measured) -- because the UI's speculative-decoding benchmark and the online
+trainer still use it. Whether to keep *that* is a separate product question, not
+a performance one.
+
+The reasoning that led there, kept because it explains the shape of the result:
 
 Two things learned while fixing it:
 - **It is corrected most of the time, even when right.** The check is

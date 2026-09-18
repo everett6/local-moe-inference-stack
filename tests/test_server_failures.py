@@ -205,7 +205,7 @@ def test_history_is_trimmed_instead_of_dead_ending_the_conversation():
             self.seen = []
 
         def stream_chat(self, messages, max_tokens):
-            self.seen.append(len(messages))
+            self.seen.append([m["role"][0] for m in messages])
             if len(messages) > 2:
                 raise local_engine.PromptTooLong(
                     f"this conversation is {9000 * len(messages):,} tokens, and the context "
@@ -246,8 +246,13 @@ def test_history_is_trimmed_instead_of_dead_ending_the_conversation():
     messages, route_text = outputs[-1][0], outputs[-1][1]
     assert messages[-1]["content"] == "answer", messages[-1]
     assert "model server failed" not in route_text, route_text
-    assert "Dropped the 3 oldest turn(s)" in route_text, route_text
-    assert app.engine.big.seen == [5, 4, 3, 2], app.engine.big.seen   # retried, shrinking each time
+    assert "Dropped the 2 oldest exchange(s)" in route_text, route_text
+    # Whole exchanges, so every attempt still starts with a user turn. Dropping
+    # single messages would have produced ['a','u','a','u'] here: a reply with
+    # no question in front of it, which the chat template renders without
+    # complaint and the model then has to make sense of.
+    assert app.engine.big.seen == [["u", "a", "u", "a", "u"], ["u", "a", "u"], ["u"]], app.engine.big.seen
+    assert all(turns[0] == "u" for turns in app.engine.big.seen), app.engine.big.seen
 
 
 def test_a_single_message_too_long_is_still_refused():
