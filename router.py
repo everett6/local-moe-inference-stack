@@ -12,10 +12,22 @@ from config import Paths
 # "what" matched whatever, "cli" matched client, "plan" matched explanation --
 # each of which sent a prompt to the 0.5B draft instead of the 30B -- while
 # "profile" failed to match "profiling". tests/test_router.py pins all of these.
+# The second group of terms was added after a live session: "Now change that
+# function so it removes duplicates from the merged result" -- a follow-up to a
+# code request -- came back as "quick", because none of the words above appear in
+# it and it is 12 words long. The list errs towards matching on purpose: "code"
+# really means "do not hand this to the 0.5B draft", so a false positive costs a
+# label, while a miss costs an answer. Words that are ordinary English as often
+# as they are technical (class, test, library, write) are still left out, so a
+# yoga class does not get routed as code.
 _CODE = re.compile(
     r"\b(?:debug\w*|code|codes|coding|codebase|fix|fixes|fixed|fixing|bugs?|buggy"
     r"|errors?|trace|traces|traced|tracing|traceback|optimi[sz]\w*|benchmark\w*"
-    r"|profil(?:e|es|ed|er|ers|ing)|cli|apis?|python|rust|cuda|gpus?)\b"
+    r"|profil(?:e|es|ed|er|ers|ing)|cli|apis?|python|rust|cuda|gpus?"
+    r"|functions?|refactor\w*|implement\w*|compil\w*|scripts?|scripting"
+    r"|algorithms?|syntax|regexe?s?|regexp|unittest\w*|pytest"
+    r"|git|github|docker|kubernetes|sql|json|yaml|xml|html|css|bash"
+    r"|javascript|typescript|java|golang|numpy|pandas|pytorch|tensorflow)\b"
     r"|(?<![\w+])c\+\+(?![\w+])"
 )
 _ANALYSIS = re.compile(

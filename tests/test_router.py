@@ -60,6 +60,26 @@ CASES = [
     ("Profiling shows the hot loop is in the tokenizer; I want to understand the results before changing anything", "code"),
     ("We are planning a migration of the reporting service to a new database over the next quarter carefully", "analysis"),
     ("Can you design an onboarding flow for new employees joining a small remote company with ten people total", "analysis"),
+
+    # --- code follow-ups. Found by driving the app in a browser: after a request
+    # for a merge function, "Now change that function so it removes duplicates
+    # from the merged result" routed to quick -- 12 words, and none of the
+    # original keywords are in it. A follow-up is where a coding session spends
+    # most of its turns, so these are the cases that matter most.
+    ("Now change that function so it removes duplicates from the merged result.", "code"),
+    ("now refactor it to use a heap", "code"),
+    ("implement binary search", "code"),
+    ("Why does this regex not match the last group?", "code"),
+    ("commit that to git and push", "code"),
+    ("the JSON it returns has the fields in the wrong order", "code"),
+
+    # --- and the words deliberately NOT in the code list, because they are
+    # ordinary English at least as often as they are technical
+    ("what time is my yoga class tonight", "quick"),
+    ("test my knowledge of Spanish vocabulary please", "quick"),
+    # Accepted false positive: "function" is worth matching for the case above,
+    # and the cost is a mislabelled bucket -- both buckets are served by the 30B.
+    ("what is the function of the mitochondria", "code"),
 ]
 
 

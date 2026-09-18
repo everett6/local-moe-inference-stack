@@ -332,7 +332,21 @@ with gr.Blocks(title="Local MoE Router (no LM Studio)") as demo:
             prompt = gr.Textbox(label="Prompt", lines=6)
             max_tokens = gr.Slider(32, 1024, value=256, step=32, label="Max output tokens")
             run = gr.Button("Generate")
-            chat = gr.Chatbot(label="Conversation", height=480)
+            # latex_delimiters: the 30B writes maths as \[ ... \] and \( ... \), which
+            # Gradio does not render by default -- "17 x 24 = 408" arrived as
+            # "[ 17 \times 24 = 408 ]". $$/$ are included because it uses those too.
+            # (No type="messages": Gradio 6 removed the argument -- the {"role",
+            # "content"} format run_inference yields is the only one it accepts now.
+            # Passing it raised TypeError at startup on gradio 6.27.)
+            chat = gr.Chatbot(
+                label="Conversation", height=480,
+                latex_delimiters=[
+                    {"left": "\\[", "right": "\\]", "display": True},
+                    {"left": "$$", "right": "$$", "display": True},
+                    {"left": "\\(", "right": "\\)", "display": False},
+                    {"left": "$", "right": "$", "display": False},
+                ],
+            )
         with gr.Column(scale=2):
             route_panel = gr.Markdown("Awaiting first request...")
             gpu_panel = gr.Markdown(gpu_telemetry())
