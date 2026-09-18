@@ -23,27 +23,28 @@ _AI2_DIR = os.path.dirname(os.path.abspath(__file__))
 # through the app's own launch path and request settings:
 #
 #   name        file      split  decode     mean KLD  same top  HumanEval  GSM8K/250
-#   q4_k_m      17.3 GiB  22     82 tok/s   0         100%      150/164    239
-#   ud-q3_k_xl  12.9 GiB  13     115        0.044     90.3%     151/164    241
+#   q4_k_m      17.3 GiB  22     82 tok/s   0         100%      91.5%      95.6%
+#   ud-q3_k_xl  12.9 GiB  13     115        0.044     90.3%     92.1%      96.4%
 #   iq3_xxs     11.4 GiB  10-11  113*       0.076     87.2%     -          -
-#   q2_k        10.2 GiB  2-3    ~189       0.098     86.2%     (crashed)  (47-49/50)
+#   q2_k        10.2 GiB  2-4    174-190    0.098     86.2%     88.4%      96.0%
 #   (decode: mixed HumanEval + GSM8K workload, model_quality_eval.py; *older run
-#    with repeat_penalty 1.1. KLD and same-top-token vs Q4_K_M's logits, quant_kld.sh.)
+#    with repeat_penalty 1.1. HumanEval runs the model's code against the problem's
+#    own tests; KLD and same-top-token are vs Q4_K_M's logits, quant_kld.sh.)
 #
-# Default: ud-q3_k_xl. It is 1.39x Q4_K_M with no measurable quality loss on 414
-# graded problems (McNemar p = 1.0 HumanEval, 0.63 GSM8K), and a smaller file.
+# Default: q2_k. It is the only file that reaches the 2x speed target, and it met
+# the bar fixed before its accuracy run: within 5 points of Q4_K_M on both
+# benchmarks (-3.0 HumanEval, +0.4 GSM8K). Caveat worth knowing: on HumanEval it
+# lost 7 problems Q4_K_M solved and gained 2 (McNemar p = 0.18) -- not significant,
+# but the only consistent direction in the data, and code is this box's main use.
 #
-# q2_k is the only one that reaches 2x, but it is not the default yet, for two
-# reasons. (1) It has twice ud-q3_k_xl's drift from Q4_K_M, and its HumanEval +
-# GSM8K-250 run never finished, so the rule set before that run (within 5 points
-# of Q4_K_M on both) is unmet, not failed. (2) 2-3 minutes into that run, at
-# split 2 (the heaviest sustained GPU load of any test), the GPU dropped off the
-# PCIe bus: kernel "NVRM: Xid 79, GPU has fallen off the bus", then "Xid 154, Node
-# Reboot Required". One event, cause unproven (Xid 79 is usually power delivery,
-# PCIe signal integrity or heat), but it happened under exactly this load. PLAN.md
-# has the soak test that decides it. `AI2_BIG_MODEL=q2_k python3 app.py` to use it
-# anyway; `q4_k_m` for the original. The smaller files come from
-# tools/download_quants.py (sha256-verified).
+# `AI2_BIG_MODEL=ud-q3_k_xl` is the quality option: 115 tok/s with no measurable
+# loss against Q4_K_M at all (p = 1.0 HumanEval, 0.63 GSM8K), half q2_k's drift.
+# `q4_k_m` is the original. The smaller files come from tools/download_quants.py.
+#
+# Hardware note: this machine reset twice under sustained near-all-GPU load
+# (2026-09-17). A 45-minute capped soak and this eval ran clean afterwards, but
+# keep `sudo nvidia-smi -pl 175` in place until the cause is settled -- it costs
+# ~5% decode. See PLAN.md.
 _QUANTS = os.path.join(_AI2_DIR, "models", "quants")
 _Q4_K_M = "/home/everett/.lmstudio/models/lmstudio-community/Qwen3-30B-A3B-Instruct-2507-GGUF/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf"
 BIG_MODELS = {
@@ -52,7 +53,7 @@ BIG_MODELS = {
     "iq3_xxs": (os.path.join(_QUANTS, "Qwen_Qwen3-30B-A3B-Instruct-2507-IQ3_XXS.gguf"), 8),
     "q2_k": (os.path.join(_QUANTS, "Qwen_Qwen3-30B-A3B-Instruct-2507-Q2_K.gguf"), 0),
 }
-BIG_MODEL = os.environ.get("AI2_BIG_MODEL", "ud-q3_k_xl").lower()
+BIG_MODEL = os.environ.get("AI2_BIG_MODEL", "q2_k").lower()
 if BIG_MODEL not in BIG_MODELS:
     raise ValueError(f"AI2_BIG_MODEL={BIG_MODEL!r}; choose one of {', '.join(BIG_MODELS)}")
 if not os.path.exists(BIG_MODELS[BIG_MODEL][0]):

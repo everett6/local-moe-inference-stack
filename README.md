@@ -5,13 +5,13 @@ hardware, driving `llama.cpp`'s `llama-server` directly from Python. No LM
 Studio app, no cloud.
 
 **Built for:** RTX 5070 (12 GB VRAM), Ryzen 9 7950X, 32 GB RAM.
-**Model:** Qwen3-30B-A3B-Instruct-2507, **UD-Q3_K_XL** by default (choose with
+**Model:** Qwen3-30B-A3B-Instruct-2507, **Q2_K** by default (choose with
 `AI2_BIG_MODEL`, see below).
 
-**Speed:** ~115 tok/s with no measurable accuracy loss (HumanEval 151/164 and
-GSM8K 241/250, vs 150 and 239 for Q4_K_M at 82 tok/s), up from 47 with the
-original config. Q2_K reaches ~189 tok/s but is opt-in until it passes a GPU soak
-test and its accuracy run (the GPU dropped off the PCIe bus under its load once).
+**Speed:** ~174-190 tok/s, up from 47 with the original config and 82 with the
+same model at Q4_K_M. Accuracy cost, measured: GSM8K 96.0% vs 95.6%, HumanEval
+88.4% vs 91.5%. `AI2_BIG_MODEL=ud-q3_k_xl` is the quality option -- 115 tok/s with
+no measurable loss against Q4_K_M on either benchmark.
 
 > **Start here:** [`PLAN.md`](PLAN.md): current state, what's settled, and the
 > prioritized next steps.
@@ -24,9 +24,9 @@ launch path; details and sources in `config.BIG_MODELS` and `PLAN.md`.
 | `AI2_BIG_MODEL` | file | decode tok/s | vs Q4_K_M: KL divergence / HumanEval / GSM8K |
 |---|---|---|---|
 | `q4_k_m` | 17.3 GiB | 82 | reference: 150/164, 239/250 |
-| `ud-q3_k_xl` (default) | 12.9 GiB | 115 | 0.044 / 151/164 / 241/250 |
+| `ud-q3_k_xl` | 12.9 GiB | 115 | 0.044 / 151/164 / 241/250 |
 | `iq3_xxs` | 11.4 GiB | ~113 | 0.076 / - / - |
-| `q2_k` | 10.2 GiB | ~189 | 0.098 / not finished / 47-49 of 50 |
+| `q2_k` (default) | 10.2 GiB | 174-190 | 0.098 / 145/164 / 240/250 |
 
 The three smaller files come from `python3 tools/download_quants.py` (Hugging Face,
 sha256-verified, 44 GB total with UD-IQ2_XXS). If the chosen file is missing the app
@@ -106,7 +106,7 @@ while a training step runs.
 
 | setting | default | what it does |
 |---|---|---|
-| `n_cpu_moe` | per model (12 for UD-Q3_K_XL) | fastest split to *try*; launch backs off from here |
+| `n_cpu_moe` | per model (0 for Q2_K, 12 for UD-Q3_K_XL) | fastest split to *try*; launch backs off from here |
 | `n_cpu_moe_step` | 1 | layers moved to RAM per failed attempt |
 | `vram_headroom_mb` | 512 | free VRAM to leave for other programs; the server itself allocates nothing after warm-up |
 | `repeat_penalty` | 1.0 | off: 1.1 cost 6% at ~190 tok/s and skewed the quick path's check (the draft samples at 1.0) |
