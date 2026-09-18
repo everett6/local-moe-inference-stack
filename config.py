@@ -157,8 +157,14 @@ class Runtime:
     # the stock 250 W limit; a 20-minute soak and the runs after it were clean at
     # 175 W. `sudo nvidia-smi -pl 175` sets it and RESETS ON EVERY REBOOT, and
     # nvidia-smi needs root, so BigModelServer can only check it and say so.
-    # 0 disables the check; require_power_cap makes it refuse to start instead of
-    # warning. This is a mitigation for a hardware fault, not a fix -- see PLAN.md.
+    # Install tools/ai2-gpu-power-cap.service (PLAN.md A4) to stop having to
+    # remember; the reboots on 2026-09-17 and 2026-09-18 both came back uncapped.
+    # 0 disables the check. require_power_cap makes it refuse to start instead of
+    # warning -- left False on purpose: the cap is gone on every fresh boot, so
+    # refusing would lock the owner out of their own app for a setting only root
+    # can restore. Instead the warning is repeated where it is actually seen, on
+    # the dashboard's telemetry panel (app.gpu_telemetry), on every refresh.
+    # This is a mitigation for a hardware fault, not a fix -- see PLAN.md.
     max_power_limit_w: float = 175
     require_power_cap: bool = False
     # Tokens the draft model proposes per speculative round.
