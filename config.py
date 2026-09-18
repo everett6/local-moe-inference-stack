@@ -199,8 +199,27 @@ class Runtime:
     # 512 costs Q2_K about one layer versus 256 (split 3 with 542 MiB free, vs
     # split 2 with 334), ~2-3% decode, and keeps room for a few browser tabs.
     vram_headroom_mb: int = 512
+    # The quick path: the 0.5B draft answers `quick`-bucket questions on the CPU,
+    # the answer is shown immediately, and the 30B re-generates it in the
+    # background and corrects any disagreement. OFF by default now, because both
+    # halves of its premise stopped holding:
+    #
+    #  - The shown answer is almost always replaced. Over 24 quick questions the
+    #    30B corrected 22 (experiments/quick_path_penalty.py). That is not the
+    #    sampling mismatch this session fixed: matching repeat_penalty moved token
+    #    agreement 79.8% -> 81.7% and left the correction rate at 22/24. The 0.5B
+    #    simply disagrees with the 30B.
+    #  - It was there to hide latency the 30B no longer has. The 30B now streams at
+    #    ~200 tok/s and starts in well under a second; the draft runs on the CPU
+    #    (llama-cpp-python here is a CPU-only build) and has been measured as slow
+    #    as 2 tok/s once a conversation gets long.
+    #
+    # So the user watched a wrong answer get rewritten, to save nothing. The draft
+    # and its online trainer still run: mismatches are exactly the training signal
+    # draft_trainer.py wants. Set this True to serve from the draft again.
+    quick_path_enabled: bool = False
     # Longest chat-templated prompt (conversation so far + message, in tokens) the
-    # quick path will take. Longer conversations go to the 30B instead.
+    # quick path will take, when enabled. Longer conversations go to the 30B.
     # The draft runs in llama-cpp-python, which here is a CPU-only build, and it
     # re-reads the whole conversation before answering: in the running app a
     # history-dependent quick question came back at 2 tok/s, ~15 s, while the

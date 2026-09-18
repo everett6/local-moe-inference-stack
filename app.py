@@ -130,6 +130,10 @@ def _run_inference(message: str, max_tokens: float, history):
     model_messages.append({"role": "user", "content": message})
 
     quick_prompt_tokens = None
+    if bucket == "quick" and not rt.quick_path_enabled:
+        # See Runtime.quick_path_enabled: the 30B corrected 22 of 24 quick answers,
+        # and at ~200 tok/s it is faster than the CPU draft anyway.
+        bucket = "quick->30B (quick path disabled)"
     if bucket == "quick":
         # Chat-templated with the 30B's template, and the SAME ids go to both the
         # draft and the 30B's check. The raw message used to go in as bare text:
