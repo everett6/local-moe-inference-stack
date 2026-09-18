@@ -218,6 +218,45 @@ C5. **Quick path**: `python3 experiments/quick_path_penalty.py`, then `app.py` i
     browser -- a chat, a code request, a quick question, a 3-turn conversation.
 C6. Update docs, commit, push, refresh `BENCHMARK_RESULTS.md`.
 
+### Phase E -- the one outside project worth trying: expert caching (researched 2026-09-17)
+
+Survey of what else could serve this model on 12 GB, and where this stack stands:
+
+- **We are already ahead of the usual numbers.** Published guides for a 30B-A3B
+  MoE on a 12 GB card with `--n-cpu-moe` report 58-62 tok/s; this app does 82 at
+  Q4_K_M, 115 at UD-Q3_K_XL and ~181-190 at Q2_K.
+- **llama.cpp PR #27861, `--moe-expert-cache N`** (GPU-resident LRU cache for
+  host-offloaded experts) is the only credible >30% lever left: +31% on
+  Qwen3.8-Flash-Next (2x3090), +40% on Qwen3.6-35B-A3B (R9700), and a 2.5x
+  outlier on an RTX PRO 4500. Still a draft PR, but actively tested (latest
+  activity 2026-09-16, now including Vulkan).
+- **FATE** (`ongunm/llama-moe-cache`), the same idea plus predictive prefetch, was
+  benchmarked on *exactly this class of machine*: RTX 4070 Ti 12 GB,
+  Qwen3-30B-A3B Q4_K_M, 33.7 → 64.5 tok/s (1.91x), 99.5% cache hit rate -- which
+  matches `experiments/expert_cache_sim.py`'s 94-96% LRU prediction. Note the
+  honest comparison though: their 64.5 tok/s is *below* our tuned 82, because
+  their baseline was naive offload. The gain would have to come on top of our
+  split, which nobody has measured. 10 stars, 7 commits: research code.
+- **Why it matters strategically:** an expert cache pays in proportion to how many
+  layers are host-resident. It is the path to running **Q4_K_M (best quality)
+  fast**, rather than trading quality away for speed. At Q2_K's 2-3 host layers
+  there would be almost nothing left to cache.
+- **Cost:** both need llama.cpp built with CUDA, and Ubuntu's `nvidia-cuda-toolkit`
+  is 12.4, too old for Blackwell's `sm_120`. That means NVIDIA's own 12.8+/13.x
+  toolkit (several GB, root) before anything can be compiled.
+
+Checked and not worth it:
+- **ik_llama.cpp**: its own issue #1699 (2026-04) reports it ~2x slower on prompt
+  processing and ~1.5x slower on generation than mainline for a Qwen3 MoE with
+  `--cpu-moe`, i.e. our exact configuration.
+- **ExLlamaV3 / EXL3**: GPU-only, no host-offload path. A 3.0bpw 30B is ~11-12 GiB,
+  which barely fits before context, and there are no published numbers for this
+  model at 12 GB. It would also mean abandoning GGUF, llama-server and every
+  measurement here.
+- **KTransformers**: built for big-RAM / Intel AMX servers; 32 GB of RAM is the
+  wrong shape for it.
+- **vLLM / SGLang / TensorRT-LLM**: all want the whole model resident in VRAM.
+
 ### Phase D -- smaller things, once the above is done
 
 - Math renders as raw brackets: set `gr.Chatbot(latex_delimiters=...)`.
