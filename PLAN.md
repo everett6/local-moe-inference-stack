@@ -260,11 +260,21 @@ A3. **Physical, regardless of A1/A2** (the cap hides a symptom, it doesn't fix a
     own cable or two separate PCIe cables. Then, if resets continue: disable
     EXPO/XMP and PBO in the BIOS, update the BIOS, run memtest86+ for a full pass,
     and check the PSU's wattage and age.
-A4. **Make the cap survive reboots.** The cap resets to 250 W on every boot and
-    this has already caught us out twice -- 2026-09-17 and 2026-09-18, both times
-    leaving the machine uncapped until someone noticed. The unit is written and
-    verified (`systemd-analyze verify` passes): [`tools/ai2-gpu-power-cap.service`](tools/ai2-gpu-power-cap.service).
-    Installing it needs root, so it is one command for the owner to run:
+A4. **DONE (installed 2026-09-18 15:58).** The cap used to reset to 250 W on
+    every boot, which caught us out twice -- 2026-09-17 and 2026-09-18, both
+    times leaving the machine uncapped until someone noticed.
+    [`tools/ai2-gpu-power-cap.service`](tools/ai2-gpu-power-cap.service) is now
+    installed and enabled, and both of its steps succeeded on first run:
+
+    ```
+    nvidia-smi[15074]: Enabled persistence mode via daemon for GPU 0000:01:00.0.
+    nvidia-smi[15088]: Power limit for GPU 0000:01:00.0 was set to 175.00 W from 250.00 W.
+    ```
+
+    `systemctl is-enabled ai2-gpu-power-cap` reports `enabled`, persistence mode
+    reads `Enabled`, and the limit reads 175 W. It has not yet survived an actual
+    reboot -- that is the one thing still unconfirmed about it. The command that
+    installed it, for reference:
 
     ```
     sudo cp /home/everett/AI2/tools/ai2-gpu-power-cap.service /etc/systemd/system/ \
