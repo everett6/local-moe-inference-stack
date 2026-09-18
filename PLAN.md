@@ -207,6 +207,11 @@ before the machine goes. That is a display/GPU hang the driver noticed -- the
 Linux counterpart of the Minecraft freeze described above, and a different
 signature from the silent power-cut resets.
 
+**The 45-minute soak passed at 175 W (2026-09-18).** 308 replies, 473,088 tokens,
+zero Xids, max 182 W and 49 C. The same test at 250 W died at 5.4 minutes. This
+is Phase A1, the gate everything else was waiting on, and it is the clearest
+single piece of evidence that the cap is the right mitigation.
+
 **The current boot is the longest clean run under load since the fault appeared.**
 Since 00:26:34, at a 175 W cap: **zero Xids**, and roughly 45 minutes of sustained
 GPU load across four experiments (headroom, context, knob re-tune, determinism)
@@ -247,13 +252,39 @@ re-measured once it doesn't.
 
 ### Phase A -- is the machine stable? (nothing else runs until this passes)
 
-A1. **45-minute soak at a 175 W cap.** `sudo nvidia-smi -pl 175`, then
-    `MODEL=q2_k DURATION_MIN=45 python3 experiments/gpu_soak.py`. It crashed at
-    5.4 minutes drawing 224 W of a 250 W limit, so surviving 45 minutes capped is
-    the A/B that points at power delivery. Costs ~5% decode (190 → 181 tok/s).
+A1. **DONE -- PASSED, 2026-09-18 16:06-16:52.**
+    `MODEL=q2_k DURATION_MIN=45 python3 experiments/gpu_soak.py` at the 175 W cap
+    ran the full **45.1 minutes: 308 replies, 473,088 tokens, zero Xids, zero
+    failed samples**, max 182 W and 49 C, PCIe 5.0 x16 throughout.
+    (`experiments/gpu_soak_q2_k_result.json`.)
+
+    The same test at the stock 250 W limit crashed at **5.4 minutes**, drawing
+    224 W. Surviving 45 minutes capped is the A/B this phase was built around,
+    and it is now the strongest evidence that the fault is power delivery under
+    load rather than the memory, the driver or this stack.
+
+    Two honest caveats. The **PCIe replay counter was unreadable** on this
+    card/driver (`replay_start` and `replay_end` are both null), so the "flat
+    replay counter" half of the pass criterion could not actually be checked --
+    the pass rests on no Xid, no server death and no failed request. And the only
+    throttle reason seen besides none was `0x4` (SW power cap), which is simply
+    the 175 W limit doing its job. Decode drifted mildly over the run -- first
+    ten replies 180.8 tok/s, last ten 174.2, median 175.7 -- tracking the 47->49 C
+    rise, not a fault.
 A2. **Re-test uncapped**, 20 minutes at 250 W (`sudo nvidia-smi -pl 250`). Capped
     clean + uncapped crash = power delivery, confirmed. Both clean = the fault is
     elsewhere (memory, PSU rail, board) and the cap isn't the fix.
+
+    **Recommendation: don't run this, at least not now.** It is a deliberate
+    attempt to provoke a fault that has four times required a hard reboot, on a
+    card that is the machine's most expensive part, to confirm something the
+    evidence already says three ways over: four crashes at 250 W and none at 175,
+    a 5.4-minute death at 250 W against 45.1 clean minutes capped, and the same
+    freeze in Windows. The remaining uncertainty it would resolve is small and
+    the downside is a possibly-degrading power connector taken to the limit
+    again. A3 (inspect the cable) gets at the same question without risking the
+    card. If it is ever run, do it with nothing unsaved and the machine
+    attended.
 A3. **Physical, regardless of A1/A2** (the cap hides a symptom, it doesn't fix a
     degrading cable): power off at the wall, inspect both ends of the GPU's
     12V-2x6 cable for browning or melting, reseat until it clicks, use the PSU's
