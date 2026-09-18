@@ -1,0 +1,43 @@
+{
+  "gpu": "RTX 5070 under a custom loop, horizontal mount",
+  "power_limit_w": 250,
+  "phases": [
+    {
+      "phase": "bandwidth",
+      "minutes": 10.0,
+      "power_w_max": 128.79,
+      "temp_c_max": 39.0,
+      "mismatches": 0,
+      "outcome": "completed clean",
+      "power_limit_w": 250
+    },
+    {
+      "phase": "compute",
+      "minutes": 10.0,
+      "power_w_max": 248.56,
+      "temp_c_max": 55.0,
+      "mismatches": 0,
+      "outcome": "completed clean",
+      "power_limit_w": 250
+    },
+    {
+      "phase": "transient",
+      "minutes": 15.0,
+      "power_w_max": 247.99,
+      "temp_c_max": 55.0,
+      "mismatches": 0,
+      "outcome": "completed clean",
+      "power_limit_w": 250
+    },
+    {
+      "phase": "pcie",
+      "minutes": 15.0,
+      "power_w_max": 218.08,
+      "temp_c_max": 40.0,
+      "mismatches": 0,
+      "outcome": "completed clean",
+      "power_limit_w": 250
+    }
+  ],
+  "conclusion": "No synthetic phase reproduced the fault at the same 250 W limit that llama.cpp inference has died at four times. Only the real workload reproduces it."
+}
