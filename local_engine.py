@@ -65,6 +65,43 @@ def _gpu_free_mb() -> Optional[int]:
         return None
 
 
+def _gpu_power_limit_w() -> Optional[float]:
+    """GPU 0's enforced power limit in watts, or None if it can't be read."""
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=power.limit", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return float(out.stdout.strip().splitlines()[0])
+    except Exception:
+        return None
+
+
+def check_gpu_power_limit(rt: Runtime):
+    """Warn (or refuse) if the GPU is running at a power limit that has crashed it.
+
+    This card dropped off the PCIe bus four times on 2026-09-17 ("NVRM: Xid 79"),
+    every time at the stock 250 W limit, twice inside 10 minutes of load. A
+    20-minute soak at `nvidia-smi -pl 175` ran clean, as did the runs after it.
+    The limit resets to stock on every reboot and nvidia-smi needs root, so the app
+    can't set it -- but it can refuse to be the thing that kills the GPU again.
+
+    Runtime.max_power_limit_w = 0 disables the check.
+    """
+    if not rt.max_power_limit_w:
+        return
+    limit = _gpu_power_limit_w()
+    if limit is None or limit <= rt.max_power_limit_w:
+        return
+    msg = (f"GPU power limit is {limit:.0f} W, above the {rt.max_power_limit_w:.0f} W this machine has "
+           f"been stable at. Every 'GPU has fallen off the bus' (Xid 79) here happened at the stock "
+           f"limit. Run:  sudo nvidia-smi -pl {rt.max_power_limit_w:.0f}   (it resets on every reboot; "
+           f"see PLAN.md for the boot service). Set Runtime.max_power_limit_w = 0 to ignore this.")
+    if rt.require_power_cap:
+        raise ServerUnavailable(msg)
+    print(f"[BigModelServer] WARNING: {msg}", flush=True)
+
+
 class BigModelServer:
     """Owns the llama.cpp server subprocess for the 30B model."""
 
@@ -102,6 +139,7 @@ class BigModelServer:
         self._log_file = None
         self.proc = None
         atexit.register(self.stop)
+        check_gpu_power_limit(rt)
         self.n_cpu_moe = self._launch_best_fit()
 
     def _launch_best_fit(self) -> int:

@@ -27,3 +27,5 @@ build/
 
 # llama-perplexity reference logits (1.5 GB), regenerable
 data/quality/*.kld
+state/gpu_watchdog.csv*
+state/gpu_watchdog.log

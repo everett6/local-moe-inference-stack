@@ -132,6 +132,15 @@ class Runtime:
     # test never included one.
     spec_args: tuple = ("--spec-type", "ngram-mod", "--spec-ngram-mod-n-match", "12",
                         "--spec-ngram-mod-n-min", "1", "--spec-ngram-mod-n-max", "16")
+    # GPU power limit this machine is known to be stable at, in watts. The card
+    # fell off the PCIe bus (NVRM Xid 79) four times on 2026-09-17, every time at
+    # the stock 250 W limit; a 20-minute soak and the runs after it were clean at
+    # 175 W. `sudo nvidia-smi -pl 175` sets it and RESETS ON EVERY REBOOT, and
+    # nvidia-smi needs root, so BigModelServer can only check it and say so.
+    # 0 disables the check; require_power_cap makes it refuse to start instead of
+    # warning. This is a mitigation for a hardware fault, not a fix -- see PLAN.md.
+    max_power_limit_w: float = 175
+    require_power_cap: bool = False
     # Tokens the draft model proposes per speculative round.
     speculative_k: int = 5
     # Leave ~1GB headroom for KV cache + the draft model's own tiny footprint.
