@@ -8,10 +8,16 @@ Studio app, no cloud.
 **Model:** Qwen3-30B-A3B-Instruct-2507, **Q2_K** by default (choose with
 `AI2_BIG_MODEL`, see below).
 
-**Speed:** ~174-190 tok/s, up from 47 with the original config and 82 with the
-same model at Q4_K_M. Accuracy cost, measured: GSM8K 96.0% vs 95.6%, HumanEval
-88.4% vs 91.5%. `AI2_BIG_MODEL=ud-q3_k_xl` is the quality option -- 115 tok/s with
+**Speed:** ~191-212 tok/s, up from 47 with the original config and 82 with the
+same model at Q4_K_M -- 4.5x and 2.6x. (212 is the mixed HumanEval+GSM8K
+workload; 201 is three short chat turns; 191-209 was measured turn by turn in
+the browser.) Accuracy cost, measured: GSM8K 96.0% vs 95.6%, HumanEval
+89.6% vs 91.5% -- neither difference is significant (p=1.00 and p=0.51, McNemar).
+`AI2_BIG_MODEL=ud-q3_k_xl` is the quality option -- 115 tok/s with
 no measurable loss against Q4_K_M on either benchmark.
+
+Since the remote-desktop daemons were removed, Q2_K loads at `--n-cpu-moe 0`:
+every one of the 48 layers' experts is in VRAM and nothing is left on the CPU.
 
 > **Start here:** [`PLAN.md`](PLAN.md): current state, what's settled, and the
 > prioritized next steps.
@@ -26,7 +32,7 @@ launch path; details and sources in `config.BIG_MODELS` and `PLAN.md`.
 | `q4_k_m` | 17.3 GiB | 82 | reference: 150/164, 239/250 |
 | `ud-q3_k_xl` | 12.9 GiB | 115 | 0.044 / 151/164 / 241/250 |
 | `iq3_xxs` | 11.4 GiB | ~113 | 0.076 / - / - |
-| `q2_k` (default) | 10.2 GiB | 174-190 | 0.098 / 145/164 / 240/250 |
+| `q2_k` (default) | 10.2 GiB | 191-212 | 0.098 / 147/164 / 240/250 |
 
 The three smaller files come from `python3 tools/download_quants.py` (Hugging Face,
 sha256-verified, 44 GB total with UD-IQ2_XXS). If the chosen file is missing the app
@@ -108,14 +114,14 @@ while a training step runs.
 |---|---|---|
 | `n_cpu_moe` | per model (0 for Q2_K, 12 for UD-Q3_K_XL) | fastest split to *try*; launch backs off from here |
 | `n_cpu_moe_step` | 1 | layers moved to RAM per failed attempt |
-| `vram_headroom_mb` | 512 | free VRAM to leave for other programs; the server itself allocates nothing after warm-up |
+| `vram_headroom_mb` | 256 | free VRAM to leave for other programs; the server itself allocates nothing after warm-up. 256 is the largest margin that still fits every expert layer -- below it nothing changes |
 | `repeat_penalty` | 1.0 | off: 1.1 cost 6% at ~190 tok/s and skewed the quick path's check (the draft samples at 1.0) |
 | `quick_max_prompt_tokens` | 512 | longer conversations skip the CPU draft and go to the 30B |
 | `server_slots` | 1 | llama-server parallel slots; 1 is +2.8 tok/s for a single user |
 | `trainer_device` | `cpu` | where the trainer's model lives |
 | `trainer_cpu_threads` | 4 | caps training's CPU use so replies don't stall |
-| `threads` | 16 | llama-server CPU threads |
-| `n_ctx` | 4096 | context length; raising it costs VRAM, so experts |
+| `threads` | 16 | llama-server CPU threads (only used for experts left in RAM; at `--n-cpu-moe 0` there are none) |
+| `n_ctx` | 8192 | context length. Past it the server rejects the request outright (it does not truncate), so this is a hard edge. KV cache competes with the experts for VRAM: 8192 costs 2 layers and 6% of decode, 16384 costs 5 and 14%, 32768 costs 13 and 33% |
 
 ## What's been measured
 

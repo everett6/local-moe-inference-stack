@@ -57,6 +57,27 @@ def _fake_sse_server_that_dies():
     return sock.getsockname()[1]
 
 
+def _fake_server_that_rejects_a_long_prompt(request_tokens, ctx_tokens):
+    """Answers 400 with llama-server's own over-context error, then closes."""
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sock.listen(1)
+
+    def serve():
+        conn, _ = sock.accept()
+        conn.recv(65536)
+        body = (b'{"error":{"code":400,"message":"request (%d tokens) exceeds the available '
+                b'context size (%d tokens), try increasing it","type":"exceed_context_size_error"}}'
+                % (request_tokens, ctx_tokens))
+        conn.sendall(b"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\n"
+                     b"Content-Length: %d\r\n\r\n%s" % (len(body), body))
+        conn.close()
+        sock.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    return sock.getsockname()[1]
+
+
 def _bare_server(port, log_text):
     srv = BigModelServer.__new__(BigModelServer)   # skip __init__: no real launch
     srv.port = port
@@ -144,6 +165,28 @@ def test_app_run_inference_reports_failure_in_chat():
     assert messages[-1]["content"].startswith("Partial answer"), messages[-1]
     assert "model server failed" in messages[-1]["content"], messages[-1]
     assert "Error" in route_text and "exited during the reply" in route_text, route_text
+
+
+def test_over_context_prompt_is_not_reported_as_a_server_failure():
+    """A prompt longer than -c is the server working, not the server failing.
+
+    llama-server answers 400 and generates nothing. Caught as a plain
+    RequestException, the app told the user "the model server failed", which
+    points debugging at the GPU for something that is one number in config.py.
+    Measured for real: at n_ctx 4096 a 7,198-token prompt was rejected this way.
+    """
+    srv = _bare_server(_fake_server_that_rejects_a_long_prompt(7198, 4096), "")
+    try:
+        list(srv.stream_chat([{"role": "user", "content": "a very long pasted file"}], 16))
+    except local_engine.PromptTooLong as e:
+        msg = str(e)
+        assert "7,198 tokens" in msg and "8,192" not in msg, msg
+        assert "4,096" in msg, msg
+        assert "Nothing was generated" in msg, msg
+    except ServerUnavailable as e:                       # the bug this pins down
+        raise AssertionError(f"an over-long prompt must not read as a server failure: {e}")
+    else:
+        raise AssertionError("expected PromptTooLong")
 
 
 def test_port_in_use_fails_immediately_without_launching():

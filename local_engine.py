@@ -24,6 +24,7 @@ your build and adjust the field names to match.
 import atexit
 import json
 import os
+import re
 import socket
 import subprocess
 import threading
@@ -52,6 +53,18 @@ _NO_GPU_MARKERS = ("failed to initialize CUDA", "no usable GPU found")
 
 class ServerUnavailable(RuntimeError):
     """The big-model server can't serve: no usable GPU, or it died mid-request."""
+
+
+class PromptTooLong(RuntimeError):
+    """The conversation does not fit in the server's context window.
+
+    Kept apart from ServerUnavailable because it is the opposite situation: the
+    server is healthy and rejected the request on purpose. llama-server answers
+    400 with "request (N tokens) exceeds the available context size (M tokens)",
+    and without this the app caught it as a RequestException and told the user
+    the model server had failed -- which sent anyone debugging it to the GPU.
+    """
+
 
 
 def _gpu_free_mb() -> Optional[int]:
@@ -354,6 +367,20 @@ class BigModelServer:
                 stream=True,
                 timeout=600,
             )
+            if r.status_code >= 400:
+                # Read the body before raising: llama-server explains exactly why,
+                # and a 400 here is almost always a prompt longer than -c.
+                body = r.text[:800]
+                m = re.search(r"request \((\d+) tokens\) exceeds the available "
+                              r"context size \((\d+) tokens\)", body)
+                if m:
+                    raise PromptTooLong(
+                        f"this conversation is {int(m.group(1)):,} tokens, and the context "
+                        f"window is {int(m.group(2)):,} (Runtime.n_ctx). Nothing was generated. "
+                        "Start a new conversation, shorten the prompt, or raise n_ctx -- which "
+                        "costs VRAM, and therefore expert layers: see "
+                        "experiments/context_at_split0.py."
+                    )
             r.raise_for_status()
             # Decode as UTF-8 explicitly. llama-server's text/event-stream response
             # declares no charset, so requests falls back to ISO-8859-1 and every

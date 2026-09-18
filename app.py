@@ -20,7 +20,7 @@ except Exception:
     pynvml = None
 
 from config import Paths, Runtime
-from local_engine import LocalMoEEngine, ServerUnavailable
+from local_engine import LocalMoEEngine, PromptTooLong, ServerUnavailable
 from draft_trainer import OnlineDraftTrainer
 from router import prompt_bucket
 
@@ -91,6 +91,16 @@ def run_inference(message: str, max_tokens: float, history):
     try:
         for last in _run_inference(message, max_tokens, history):
             yield last
+    except PromptTooLong as e:
+        # Not a failure of anything: the server is fine and refused a prompt that
+        # does not fit. Saying "the model server failed" here sent debugging to
+        # the GPU for a problem that is one number in config.py.
+        messages = list(last[0]) if last else list(history or []) + [{"role": "user", "content": message}]
+        if messages and messages[-1].get("role") == "assistant" and not (messages[-1].get("content") or ""):
+            messages.pop()
+        messages.append({"role": "assistant",
+                         "content": f"**[Too long for the context window]** {e}"})
+        yield messages, f"### Route decision\n* **Prompt too long:** {e}", gpu_telemetry(), trainer_panel()
     except (ServerUnavailable, requests.exceptions.RequestException) as e:
         messages = list(last[0]) if last else list(history or []) + [{"role": "user", "content": message}]
         if messages and messages[-1].get("role") == "assistant":

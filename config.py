@@ -94,7 +94,27 @@ class Paths:
 
 @dataclass
 class Runtime:
-    n_ctx: int = 4096
+    # 4096 was llama-server's default, never a measured choice, and it is a hard
+    # edge: past it the server answers 400 ("request (7198 tokens) exceeds the
+    # available context size") and generates nothing. It does not truncate. A
+    # pasted file or a long conversation hits that, and the app used to report it
+    # as "the model server failed" (now PromptTooLong, which says what it is).
+    #
+    # KV cache comes out of the same VRAM as the experts, so context is paid for
+    # in layers pushed back to the CPU. experiments/context_at_split0.py measured
+    # the exchange rate at the current fit (Q2_K, 256 MiB margin):
+    #
+    #     -c   split     short  vs 4096      long  vs 4096   prefill
+    #   4096       0     198.1    1.00x     169.5    1.00x      3873
+    #   8192       2     185.3    0.94x     161.3    0.95x      3624
+    #  16384       5     169.8    0.86x     150.9    0.89x      3370
+    #  32768      13     132.7    0.67x     120.4    0.71x      2724
+    #
+    # 8192 is the knee: twice the room for 6% of decode, and 185 tok/s is still
+    # 2.3x tuned Q4_K_M. Beyond it the price per token of context roughly doubles
+    # (16384 costs 5 layers, 32768 costs 13), for room this app rarely uses.
+    # Running out of context is a hard failure; 6% is not noticeable.
+    n_ctx: int = 8192
     threads: int = 16
     # llama-server's physical batch size (-ub) and logical batch (-b), for reading
     # the prompt. 1024 reads long prompts 32% faster than the 512 default (4,061 vs
