@@ -137,6 +137,21 @@ hour boots yesterday, including an hour of the same Q2_K load). The first crash,
 A progressively worsening power fault on a 12V-2x6 GPU connector is a known
 failure mode on RTX 40/50 cards, and a melting connector is a fire risk.
 
+**It happens in Windows too.** The owner reports Minecraft freezing hard after a
+while on the same machine. That rules out this project, llama.cpp, the NVIDIA
+Linux driver and the OS install: a fault that reproduces across two operating
+systems under unrelated GPU load is the card, its power cable, or the PSU. It
+also matches the power pattern seen here (four Xid 79s at the stock 250 W limit,
+none at 175 W): Minecraft with shaders is spiky, sustained GPU load.
+
+Cross-check to run in Windows, which settles it: cap the GPU to 70% power in MSI
+Afterburner and play. If the freezes stop capped and return uncapped, it is the
+same fault on both systems. While there, check Event Viewer > System for
+`nvlddmkm` "stopped responding and has recovered" (the Windows equivalent of
+Xid 79), and watch the GPU **memory junction** temperature in HWiNFO64 -- a
+memory hotspot above ~100 C with a cool core means failing thermal pads, which
+behaves exactly like this: fine at low load, hangs when sustained.
+
 **Do not run benchmarks, or leave the machine under load unattended, until this
 is fixed.** Order to work through:
 1. Power off at the wall. **Inspect both ends of the GPU power cable** (card side
