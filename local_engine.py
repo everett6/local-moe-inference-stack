@@ -24,6 +24,7 @@ your build and adjust the field names to match.
 import atexit
 import json
 import os
+import socket
 import subprocess
 import threading
 import time
@@ -102,6 +103,40 @@ def check_gpu_power_limit(rt: Runtime):
     print(f"[BigModelServer] WARNING: {msg}", flush=True)
 
 
+def _port_holder(port: int) -> str:
+    """Best-effort description of whatever is listening on `port`."""
+    try:
+        out = subprocess.run(["ss", "-ltnp", f"sport = :{port}"],
+                             capture_output=True, text=True, timeout=5).stdout
+        for line in out.splitlines()[1:]:
+            if f":{port}" in line:
+                return line.split("users:", 1)[-1].strip() or line.strip()
+    except Exception:
+        pass
+    return "unknown process"
+
+
+def _check_port_free(port: int) -> None:
+    """Fail immediately if the port is taken, instead of blaming VRAM for it.
+
+    A previous run's llama-server outlives its parent if the app is killed with
+    a signal (atexit does not run on SIGTERM). The next start then found port
+    8090 busy, read every launch as 'load_failed', and walked all 49 splits --
+    about two minutes -- before reporting a VRAM problem that did not exist.
+    The real cause was in the error's last sentence all along.
+    """
+    with socket.socket() as sock:
+        sock.settimeout(1)
+        if sock.connect_ex(("127.0.0.1", port)) != 0:
+            return
+    raise ServerUnavailable(
+        f"port {port} is already in use by {_port_holder(port)} -- most likely a "
+        "llama-server left behind by an earlier run that was killed with a signal. "
+        f"Stop it first (`pkill -f 'llama-server.*--port {port}'`), then start again. "
+        "Nothing was launched, so this is not a VRAM or model problem."
+    )
+
+
 class BigModelServer:
     """Owns the llama.cpp server subprocess for the 30B model."""
 
@@ -139,6 +174,7 @@ class BigModelServer:
         self._log_file = None
         self.proc = None
         atexit.register(self.stop)
+        _check_port_free(port)
         check_gpu_power_limit(rt)
         self.n_cpu_moe = self._launch_best_fit()
 

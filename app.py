@@ -5,6 +5,7 @@ Run with: python app.py
 Requires the `llama-server` binary (built from llama.cpp) on PATH, plus the
 packages in requirements.txt.
 """
+import signal
 import sys
 import time
 from typing import Optional
@@ -369,7 +370,20 @@ with gr.Blocks(title="Local MoE Router (no LM Studio)") as demo:
     demo.load(fn=lambda: (gpu_telemetry(), trainer_panel()), inputs=None, outputs=[gpu_panel, train_panel])
 
 
+def _exit_on_signal(signum, _frame):
+    """Turn SIGTERM/SIGINT into a normal exit so the `finally` below runs.
+
+    atexit and `finally` do not run when the default SIGTERM handler kills the
+    process, so `kill <app pid>` used to leave llama-server holding port 8090
+    and 11 GB of VRAM. The next start then failed at every split. Raising
+    SystemExit from the handler takes the ordinary shutdown path instead.
+    """
+    raise SystemExit(128 + signum)
+
+
 if __name__ == "__main__":
+    for _sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(_sig, _exit_on_signal)
     try:
         demo.launch(server_name="127.0.0.1", server_port=7860, share=False)
     finally:

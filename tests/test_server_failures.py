@@ -30,6 +30,7 @@ import types
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
+import config  # noqa: E402
 import local_engine  # noqa: E402
 from config import Runtime  # noqa: E402
 from local_engine import BigModelServer, ServerUnavailable  # noqa: E402
@@ -143,6 +144,44 @@ def test_app_run_inference_reports_failure_in_chat():
     assert messages[-1]["content"].startswith("Partial answer"), messages[-1]
     assert "model server failed" in messages[-1]["content"], messages[-1]
     assert "Error" in route_text and "exited during the reply" in route_text, route_text
+
+
+def test_port_in_use_fails_immediately_without_launching():
+    """An orphaned llama-server holding the port must be named, not mistaken for
+    a VRAM problem.
+
+    This happened for real: the app was killed with a signal, its llama-server
+    survived, and the next start read every one of the 49 splits as
+    'load_failed' -- roughly two minutes of subprocess launches -- before
+    reporting a VRAM error. Nothing here may be launched at all.
+    """
+    import socket
+    import time
+
+    listener = socket.socket()
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+
+    # Count real launch attempts. Patching subprocess.Popen would not work:
+    # the error message itself shells out to `ss` to name the offending process.
+    launched = []
+    real_try = local_engine.BigModelServer._try_launch
+    local_engine.BigModelServer._try_launch = lambda self, n: launched.append(n) or "load_failed"
+    t0 = time.time()
+    try:
+        local_engine.BigModelServer(config.Paths(), config.Runtime(), port=port)
+        raise AssertionError("expected ServerUnavailable for a port already in use")
+    except local_engine.ServerUnavailable as exc:
+        msg = str(exc)
+        assert f"port {port} is already in use" in msg, msg
+        assert "not a VRAM" in msg, msg
+    finally:
+        local_engine.BigModelServer._try_launch = real_try
+        listener.close()
+    assert not launched, f"no split should be attempted when the port is taken, tried {launched}"
+    assert time.time() - t0 < 5, "the check must be immediate, not a 49-split walk"
 
 
 if __name__ == "__main__":
