@@ -96,6 +96,42 @@ class Paths:
 class Runtime:
     n_ctx: int = 4096
     threads: int = 16
+    # llama-server's physical batch size (-ub) and logical batch (-b), for reading
+    # the prompt. 1024 reads long prompts 32% faster than the 512 default (4,061 vs
+    # 3,087 tok/s) at no cost to decode (176.6 vs 178.6, inside a baseline that
+    # itself swings 170.8-181.1 across rounds), and costs ~70 MiB of compute buffer.
+    # It cost decode at Q4_K_M, where the GPU was waiting on CPU-side experts;
+    # with Q2_K nearly all on the GPU it does not.
+    # experiments/cpu_gpu_knobs.py, knob_combo_ab.py.
+    #
+    # Also measured there and NOT adopted: pinning llama-server to the 16 physical
+    # cores looked like +3% over 2 rounds and turned out to be noise over 3
+    # (0.99x); thread counts 4/8, per-CCD (L3) pinning, polling levels and
+    # disabling CUDA graphs are all neutral or worse.
+    ubatch: int = 1024
+    batch: int = 2048
+    # N-gram speculative decoding: llama-server drafts tokens it has already seen
+    # in this context and checks them in one batch. Empty list = off.
+    #
+    # This is a reversal of SPEC_DECODING.md, and the reason is the split. At
+    # Q4_K_M (20+ layers of experts in RAM) checking a batch of drafted tokens ran
+    # on the CPU and every arm lost. With Q2_K at split 2-4 that batch is on the
+    # GPU, so drafting is nearly free. experiments/ngram_q2k.py, medians of 2
+    # rounds against a 174.3 / 172.6 tok/s baseline:
+    #
+    #   arm            code edits      fresh text     accepted
+    #   mod m12 n16    213.2 (1.22x)   182.0 (1.05x)  89%
+    #   simple n4 m16  213.1 (1.22x)   176.2 (1.02x)  69%
+    #   mod m8 n8      211.5 (1.21x)   177.1 (1.03x)  83%
+    #   map-k n3 m8    165.2 (0.95x)   167.4 (0.97x)  42%
+    #
+    # ngram-mod with a 12-token match wins on both: it only drafts when it has
+    # seen a long enough run before, so ordinary prose doesn't pay for the misses.
+    # "Code edits" = paste 40-80 lines and ask for a modified copy, where the reply
+    # repeats most of the prompt; that is the case this is for, and the earlier
+    # test never included one.
+    spec_args: tuple = ("--spec-type", "ngram-mod", "--spec-ngram-mod-n-match", "12",
+                        "--spec-ngram-mod-n-min", "1", "--spec-ngram-mod-n-max", "16")
     # Tokens the draft model proposes per speculative round.
     speculative_k: int = 5
     # Leave ~1GB headroom for KV cache + the draft model's own tiny footprint.

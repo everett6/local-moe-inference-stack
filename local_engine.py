@@ -89,6 +89,9 @@ class BigModelServer:
             "-ngl", "999",
             "-fa", "on",
             "-np", str(rt.server_slots),
+            "-ub", str(rt.ubatch),
+            "-b", str(rt.batch),
+            *rt.spec_args,
         ]
         # stdout/stderr MUST go to a real file, not subprocess.PIPE: llama-server logs
         # every request, and nothing here was ever draining a PIPE's OS buffer (64KB).
