@@ -161,40 +161,72 @@ Software-side mitigation once it boots reliably, while confirming the fix:
 - Re-run `MODEL=q2_k DURATION_MIN=45 python3 experiments/gpu_soak.py` to confirm a
   fix: it logs power, temperature, throttling, PCIe link and kernel Xids every 2 s.
 
-## Plan 2: next session (after a full power cycle)
+## Plan 3 (current): stability first, then free the card, then finish the measurements
 
-In order; each step decides whether the next is worth running.
+Replaces Plan 2, which got as far as the soak test before the machine started
+resetting. Every phase gates the next: a number measured on an unstable machine
+is worth nothing, and speed measured while the desktop sits on the GPU will be
+re-measured once it doesn't.
 
-1. **Hardware check, before any GPU load.** Reseat the GPU's 12V-2x6 power
-   connector fully (partially seated connectors cause Xid 79 under load). In the
-   BIOS, consider forcing the GPU slot to PCIe Gen 4: a common fix for RTX 50 +
-   PCIe 5.0 "fallen off the bus". It should cost little here, since per token only
-   small activations for the few CPU-side layers cross the bus, but measure it (the
-   soak test logs the link gen). If the crash repeats, run `sudo nvidia-bug-report.sh`
-   **before** rebooting: the driver's crash dump is lost when the module unloads.
-2. **GPU soak test, Q2_K at split 2, 45 minutes, with telemetry**
-   (`experiments/gpu_soak.py`, written; its telemetry, Xid detection and
-   failure path were tested with the GPU gone): continuous generation while logging
-   `nvidia-smi` power, temperature, throttle reasons and PCIe errors every 2 s, and
-   `journalctl -k` for Xid. Passes if it runs clean. If it faults, run it once more
-   at UD-Q3_K_XL's split 13: if that is clean, the fault is load-dependent and
-   Q2_K stays opt-in until the hardware is fixed.
-3. **Finish Q2_K's accuracy run.** `MODELS=q2_k python3 experiments/model_quality_eval.py`
-   (resumes; Q4_K_M and UD-Q3_K_XL are saved). Apply the 5-point rule. If Q2_K
-   passes both 2 and 3, make it the default.
-4. **VRAM contention**: `HEADROOM=512` and `HEADROOM=0 python3 experiments/vram_contention.py`.
-   Decides whether the margin can drop to 256 MiB (+1 layer, ~2-3%).
-5. **CPU/GPU knobs**: `python3 experiments/cpu_gpu_knobs.py` on the default
-   model's split (`SPLIT=13` for UD-Q3_K_XL, where 13 layers still run on the CPU,
-   so thread count and L3/CCD pinning matter much more than at Q2_K's 3).
-6. **N-gram speculation for code edits**: `python3 experiments/ngram_q2k.py`
-   (`SPLIT` as above). It lost at Q4_K_M because checking drafts ran through
-   experts in RAM and its prompts asked for new text; this one pastes code and
-   asks for an edited copy, and checks the output is identical to plain decoding.
-7. **Real app, end to end**: `python3 experiments/quick_path_penalty.py`, then start
-   `app.py` and send a chat, a code request, a quick question and a 3-turn
-   conversation through the UI; check streaming and the reported tok/s.
-8. Document, commit, push.
+### Phase A -- is the machine stable? (nothing else runs until this passes)
+
+A1. **45-minute soak at a 175 W cap.** `sudo nvidia-smi -pl 175`, then
+    `MODEL=q2_k DURATION_MIN=45 python3 experiments/gpu_soak.py`. It crashed at
+    5.4 minutes drawing 224 W of a 250 W limit, so surviving 45 minutes capped is
+    the A/B that points at power delivery. Costs ~5% decode (190 → 181 tok/s).
+A2. **Re-test uncapped**, 20 minutes at 250 W (`sudo nvidia-smi -pl 250`). Capped
+    clean + uncapped crash = power delivery, confirmed. Both clean = the fault is
+    elsewhere (memory, PSU rail, board) and the cap isn't the fix.
+A3. **Physical, regardless of A1/A2** (the cap hides a symptom, it doesn't fix a
+    degrading cable): power off at the wall, inspect both ends of the GPU's
+    12V-2x6 cable for browning or melting, reseat until it clicks, use the PSU's
+    own cable or two separate PCIe cables. Then, if resets continue: disable
+    EXPO/XMP and PBO in the BIOS, update the BIOS, run memtest86+ for a full pass,
+    and check the PSU's wattage and age.
+A4. **Make the cap survive reboots** once A1/A2 say it helps (needs root: it
+    resets to 250 W on every boot, and persistence mode is off):
+    a systemd unit running `nvidia-smi -pm 1` then `nvidia-smi -pl 175` at boot.
+
+### Phase B -- take the desktop off the GPU (~764 MiB, ~3-4 layers of experts)
+
+B1. **Remove Google Remote Desktop**: `sudo apt purge -y chrome-remote-desktop`
+    plus its config. GNOME Remote Desktop (164 MiB of VRAM) is already disabled:
+    `systemctl --user enable --now gnome-remote-desktop.service` puts it back.
+B2. **Move the monitor to the motherboard port.** The 7950X's integrated graphics
+    are enabled and have a DRM node (card0, `73:00.0`); the display is currently
+    on the RTX 5070 (card1, DP-3), so the desktop has to render there. After the
+    move, `nvidia-smi` should list no desktop processes at all.
+B3. **Firefox holds ~390 MiB** -- more than the desktop. Close it during runs, or
+    turn off "Use hardware acceleration when available".
+B4. **Re-measure the fitted split.** With ~764 MiB freed, Q2_K should reach split
+    0-1 (~198-200 tok/s measured bare) and UD-Q3_K_XL should gain 3-4 layers.
+B5. **Re-check `vram_headroom_mb`** (512): with nothing but the model on the card
+    the margin can probably drop to 256, worth another layer.
+
+### Phase C -- finish the measurements that were queued
+
+C1. **Q2_K accuracy**: `MODELS=q2_k python3 experiments/model_quality_eval.py`
+    (resumes; the other two models are saved). Apply the rule set before the first
+    run -- within 5 points of Q4_K_M on HumanEval and GSM8K -- and make Q2_K the
+    default only if it passes that and Phase A.
+C2. **VRAM contention**: `HEADROOM=512` then `HEADROOM=0 python3 experiments/vram_contention.py`.
+C3. **CPU/GPU knobs** at the default model's split:
+    `MODEL=ud-q3_k_xl SPLIT=13 python3 experiments/cpu_gpu_knobs.py` (threads, one-CCD
+    L3 pinning, polling, CUDA graphs, ubatch). Worth more at 13 CPU layers than at 2.
+C4. **N-gram speculation for code edits**: `MODEL=... SPLIT=... python3 experiments/ngram_q2k.py`.
+C5. **Quick path**: `python3 experiments/quick_path_penalty.py`, then `app.py` in the
+    browser -- a chat, a code request, a quick question, a 3-turn conversation.
+C6. Update docs, commit, push, refresh `BENCHMARK_RESULTS.md`.
+
+### Phase D -- smaller things, once the above is done
+
+- Math renders as raw brackets: set `gr.Chatbot(latex_delimiters=...)`.
+- A per-use "long document" profile (ubatch 1024: +54% prefill, -3 tok/s decode).
+- Watch llama.cpp PR #27861 (`--moe-expert-cache`), the one upstream change that
+  would beat any of this: +14.6% reported on this exact model.
+
+**Rule while stability is unresolved:** keep GPU runs to 20 minutes or less, capped,
+and never leave one running unattended.
 
 **Ruled out this session:** KV cache q8_0 (-10 tok/s per split), `--backend-sampling`
 (-2% vs no penalty), UD-IQ2_XXS (slower and worse than Q2_K), f16 KV at split 0
