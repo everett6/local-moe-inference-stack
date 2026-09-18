@@ -195,10 +195,25 @@ class Runtime:
     # and browser, which hold ~700 MiB here and grow when a page uses the GPU.
     # (What happens to a running server when another program takes the rest is
     # experiments/vram_contention.py, written but not yet run: see PLAN.md.)
-    # Was 768. Each Q2_K layer of experts is ~200 MiB and ~0.2 ms/token in RAM, so
-    # 512 costs Q2_K about one layer versus 256 (split 3 with 542 MiB free, vs
-    # split 2 with 334), ~2-3% decode, and keeps room for a few browser tabs.
-    vram_headroom_mb: int = 512
+    # Was 768, then 512. Now 256, because the desktop's own VRAM use collapsed:
+    # Google Remote Desktop is purged and GNOME's remote desktop is disabled, so
+    # what is left on the card is gnome-shell (~150 MiB) plus a terminal, not the
+    # ~700 MiB assumed above. experiments/headroom_recheck.py re-fitted the model
+    # at 512/256/128/0 MiB of margin (Q2_K, 2 rounds, the app's own request path):
+    #
+    #     margin   split     decode    vs 512  free MiB
+    #        512       1      196.2     1.00x       613
+    #        256       0      201.1     1.02x       437
+    #        128       0      200.9     1.02x       437
+    #          0       0      200.8     1.02x       437
+    #
+    # 256 is the largest margin that still fits ALL 48 layers of experts in VRAM
+    # (--n-cpu-moe 0 -- nothing left on the CPU), and going below it changes
+    # nothing: the fit is already at the floor, so 128 and 0 land on the same
+    # split with the same 437 MiB free. So 256 takes the last layer and keeps the
+    # bigger margin. If a browser with a GPU-accelerated page is open at launch,
+    # the fit simply falls back to split 1 as before -- that is what it is for.
+    vram_headroom_mb: int = 256
     # The quick path: the 0.5B draft answers `quick`-bucket questions on the CPU,
     # the answer is shown immediately, and the 30B re-generates it in the
     # background and corrects any disagreement. OFF by default now, because both

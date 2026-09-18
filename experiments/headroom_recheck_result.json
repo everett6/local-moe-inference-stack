@@ -1,0 +1,58 @@
+{
+ "512": [
+  {
+   "headroom": 512,
+   "n_cpu_moe": 1,
+   "decode_tps": 195.75290953054989,
+   "free_mb": 613
+  },
+  {
+   "headroom": 512,
+   "n_cpu_moe": 1,
+   "decode_tps": 196.7422758162755,
+   "free_mb": 613
+  }
+ ],
+ "256": [
+  {
+   "headroom": 256,
+   "n_cpu_moe": 0,
+   "decode_tps": 200.6578511913015,
+   "free_mb": 437
+  },
+  {
+   "headroom": 256,
+   "n_cpu_moe": 0,
+   "decode_tps": 201.50238217095728,
+   "free_mb": 437
+  }
+ ],
+ "128": [
+  {
+   "headroom": 128,
+   "n_cpu_moe": 0,
+   "decode_tps": 200.38518485533302,
+   "free_mb": 437
+  },
+  {
+   "headroom": 128,
+   "n_cpu_moe": 0,
+   "decode_tps": 201.39810846616808,
+   "free_mb": 437
+  }
+ ],
+ "0": [
+  {
+   "headroom": 0,
+   "n_cpu_moe": 0,
+   "decode_tps": 200.73959996361594,
+   "free_mb": 437
+  },
+  {
+   "headroom": 0,
+   "n_cpu_moe": 0,
+   "decode_tps": 200.878424610955,
+   "free_mb": 437
+  }
+ ]
+}
