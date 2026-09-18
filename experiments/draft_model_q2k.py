@@ -43,10 +43,13 @@ SPLIT = int(os.environ.get("SPLIT", "4"))
 DRAFT_SPLIT = SPLIT + int(os.environ.get("DRAFT_EXTRA_SPLIT", "4"))   # the VRAM the draft takes back
 
 
-def draft_args(n_max, p_min, with_ngram=False, ctx=2048):
+def draft_args(n_max, p_min, with_ngram=False):
+    # No draft-context flag in this build (-cd is rejected): the draft inherits the
+    # target's -c, so its KV cache is sized like the target's and costs VRAM
+    # accordingly. That is part of what the draft has to earn back.
     t = "draft-simple,ngram-mod" if with_ngram else "draft-simple"
     args = ["--spec-type", t, "-md", DRAFT, "-ngld", "99", "--spec-draft-n-max", str(n_max),
-            "--spec-draft-p-min", str(p_min), "-cd", str(ctx)]
+            "--spec-draft-p-min", str(p_min)]
     return args + (NGRAM[2:] if with_ngram else [])
 
 
