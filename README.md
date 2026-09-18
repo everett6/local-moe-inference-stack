@@ -18,6 +18,10 @@ no measurable loss against Q4_K_M on either benchmark.
 
 Since the remote-desktop daemons were removed, Q2_K loads at `--n-cpu-moe 0`:
 every one of the 48 layers' experts is in VRAM and nothing is left on the CPU.
+The 8192-token context takes two of those layers back (191 -> 185 tok/s), which
+is what pays for a ~5,000-token document being answerable at all. A conversation
+that outgrows the window drops its oldest turns and says so, rather than
+refusing every later message.
 
 > **Start here:** [`PLAN.md`](PLAN.md): current state, what's settled, and the
 > prioritized next steps.
