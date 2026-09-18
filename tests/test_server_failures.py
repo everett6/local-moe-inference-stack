@@ -189,6 +189,86 @@ def test_over_context_prompt_is_not_reported_as_a_server_failure():
         raise AssertionError("expected PromptTooLong")
 
 
+def test_history_is_trimmed_instead_of_dead_ending_the_conversation():
+    """One oversized paste must not end the conversation.
+
+    Found in the browser: after a 31,184-token paste was refused, the next
+    message -- "What is 12 squared plus 5?" -- was refused too, because the
+    oversized message was still in the history. The only escape was clearing
+    the chat. _stream_with_trimming drops the oldest turns and retries.
+    """
+    import draft_trainer
+
+    class FakeBig:
+        """Refuses until the conversation is down to 2 messages."""
+        def __init__(self):
+            self.seen = []
+
+        def stream_chat(self, messages, max_tokens):
+            self.seen.append(len(messages))
+            if len(messages) > 2:
+                raise local_engine.PromptTooLong(
+                    f"this conversation is {9000 * len(messages):,} tokens, and the context "
+                    "window is 8,192 (Runtime.n_ctx). Nothing was generated.")
+            yield {"delta": "answer"}
+            yield {"timings": {"predicted_per_second": 140.0}}
+
+    class FakeEngine:
+        def __init__(self, *a, **k):
+            self.big = FakeBig()
+            self.draft_model_path = "fake"
+
+        def reload_draft(self, *a):
+            pass
+
+    class FakeTrainer:
+        def __init__(self, *a, **k):
+            self.on_refresh = None
+
+        def report_mismatch(self, *a):
+            pass
+
+        def snapshot_stats(self):
+            return types.SimpleNamespace(last_update_ts=0, last_refresh_ts=0, steps=0, last_loss=0.0,
+                                         queued=0, refresh_count=0, last_refresh_error=None)
+
+    real_engine, real_trainer = local_engine.LocalMoEEngine, draft_trainer.OnlineDraftTrainer
+    local_engine.LocalMoEEngine, draft_trainer.OnlineDraftTrainer = FakeEngine, FakeTrainer
+    try:
+        sys.modules.pop("app", None)
+        import app
+        history = [{"role": "user", "content": "old " * 50}, {"role": "assistant", "content": "older reply"},
+                   {"role": "user", "content": "recent"}, {"role": "assistant", "content": "recent reply"}]
+        outputs = list(app.run_inference("and now this one", 64, history))
+    finally:
+        local_engine.LocalMoEEngine, draft_trainer.OnlineDraftTrainer = real_engine, real_trainer
+
+    messages, route_text = outputs[-1][0], outputs[-1][1]
+    assert messages[-1]["content"] == "answer", messages[-1]
+    assert "model server failed" not in route_text, route_text
+    assert "Dropped the 3 oldest turn(s)" in route_text, route_text
+    assert app.engine.big.seen == [5, 4, 3, 2], app.engine.big.seen   # retried, shrinking each time
+
+
+def test_a_single_message_too_long_is_still_refused():
+    """Trimming must not loop forever when the newest message alone does not fit."""
+    class FakeBig:
+        def stream_chat(self, messages, max_tokens):
+            raise local_engine.PromptTooLong("this conversation is 31,184 tokens")
+            yield  # pragma: no cover -- makes this a generator
+
+    import app
+    real_big = app.engine.big
+    app.engine.big = FakeBig()
+    try:
+        outputs = list(app.run_inference("one enormous pasted file", 64, []))
+    finally:
+        app.engine.big = real_big
+    messages, route_text = outputs[-1][0], outputs[-1][1]
+    assert "Too long for the context window" in messages[-1]["content"], messages[-1]
+    assert "Prompt too long" in route_text, route_text
+
+
 def test_port_in_use_fails_immediately_without_launching():
     """An orphaned llama-server holding the port must be named, not mistaken for
     a VRAM problem.

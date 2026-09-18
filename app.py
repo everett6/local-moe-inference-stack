@@ -224,7 +224,8 @@ def _run_inference(message: str, max_tokens: float, history):
     text = ""
     timings = {}
     last_yield = 0.0
-    for event in engine.big.stream_chat(model_messages, max_tokens_i):
+    dropped = []
+    for event in _stream_with_trimming(model_messages, max_tokens_i, dropped):
         if "timings" in event:
             timings = event["timings"]
             continue
@@ -244,8 +245,40 @@ def _run_inference(message: str, max_tokens: float, history):
         f"* Tokens/sec: `{decode_tps:.2f}` (decode, server-measured)\n" if decode_tps else ""
     ) + (
         f"* Time to first token: `{first_token_s:.2f}s`" if first_token_s is not None else "* (empty reply)"
+    ) + (
+        f"\n* Dropped the {len(dropped)} oldest turn(s) to fit the {rt.n_ctx}-token context window"
+        if dropped else ""
     )
     yield all_messages, route_text, gpu_telemetry(), trainer_panel()
+
+
+def _stream_with_trimming(model_messages, max_tokens_i, dropped):
+    """Stream a reply, dropping the oldest turns if the conversation does not fit.
+
+    Without this, one oversized paste ends the conversation permanently: the
+    message stays in the history, so every later turn -- however short -- is
+    refused for the same reason, and the only way out is to clear the chat.
+    Measured in the browser: after a 31,184-token paste, "What is 12 squared
+    plus 5?" came back as "too long" too.
+
+    Only a refusal made *before any token arrives* is retried, and only by
+    dropping history: if the newest message alone does not fit, nothing can be
+    dropped that would help, and PromptTooLong is raised for the app to show.
+    `dropped` collects how many turns were let go, for the route panel.
+    """
+    msgs = list(model_messages)
+    while True:
+        started = False
+        try:
+            for ev in engine.big.stream_chat(msgs, max_tokens_i):
+                started = True
+                yield ev
+            return
+        except PromptTooLong:
+            if started or len(msgs) <= 1:
+                raise
+            msgs = msgs[1:]                      # oldest first
+            dropped.append(1)
 
 
 def _as_model_message(m) -> Optional[dict]:

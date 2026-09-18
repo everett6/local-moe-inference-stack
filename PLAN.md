@@ -347,6 +347,13 @@ Checked and not worth it:
 - **DONE. ubatch 1024 is the default**, and re-checked at the new operating point
   (`experiments/knobs_at_8192.py`): a larger ubatch grows the compute buffer,
   which competes with the experts for VRAM and can cost a layer.
+- **DONE. The context window is 8192**, and a conversation that outgrows it now
+  drops its oldest turns and carries on instead of dead-ending. Before this, one
+  oversized paste ended the conversation for good: the message stayed in the
+  history, so every later turn was refused for the same reason and the only way
+  out was clearing the chat. Verified in the browser -- three ~4,100-token
+  documents in a row, the third answered with "Dropped the 1 oldest turn(s) to
+  fit the 8192-token context window" at 142 tok/s.
 - Watch llama.cpp PR #27861 (`--moe-expert-cache`), the one upstream change that
   would beat any of this: +14.6% reported on this exact model.
 
