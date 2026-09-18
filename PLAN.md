@@ -24,7 +24,8 @@
 | Original config (every MoE expert in RAM, Q4_K_M) | 47 | 1.0x | reference |
 | Q4_K_M, fitted split + this session's settings | 82 | 1.7x | reference |
 | UD-Q3_K_XL (`AI2_BIG_MODEL=ud-q3_k_xl`) | 115 | 2.4x | no measurable loss |
-| **Q2_K (default)** | **191-212** | **4.1-4.5x** | HumanEval -1.9 pts, GSM8K +0.4 |
+| **Q2_K (default), `n_ctx` 8192** | **185-197** | **4.0-4.2x** | HumanEval -1.9 pts, GSM8K +0.4 |
+| Q2_K at `n_ctx` 4096 (fits at `--n-cpu-moe 0`) | 191-212 | 4.1-4.5x | same model |
 | Q2_K + n-gram drafting, code-edit prompts | **213** | 4.5x | no accuracy cost, measured (not the same tokens -- see below) |
 
 Neither accuracy difference is significant: HumanEval 147/164 vs 150/164

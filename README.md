@@ -8,20 +8,25 @@ Studio app, no cloud.
 **Model:** Qwen3-30B-A3B-Instruct-2507, **Q2_K** by default (choose with
 `AI2_BIG_MODEL`, see below).
 
-**Speed:** ~191-212 tok/s, up from 47 with the original config and 82 with the
-same model at Q4_K_M -- 4.5x and 2.6x. (212 is the mixed HumanEval+GSM8K
-workload; 201 is three short chat turns; 191-209 was measured turn by turn in
-the browser.) Accuracy cost, measured: GSM8K 96.0% vs 95.6%, HumanEval
-89.6% vs 91.5% -- neither difference is significant (p=1.00 and p=0.51, McNemar).
-`AI2_BIG_MODEL=ud-q3_k_xl` is the quality option -- 115 tok/s with
-no measurable loss against Q4_K_M on either benchmark.
+**Speed:** **~185-197 tok/s** on short prompts in the shipped configuration, up
+from 47 with the original config and 82 with the same model at Q4_K_M -- **4.1x**
+and 2.3x. On the original benchmark's five prompts, re-run unchanged:
+46.19 -> 188.5 tok/s ([`BENCHMARK_RESULTS.md`](BENCHMARK_RESULTS.md)). A
+~4,000-token document answers at ~145. Accuracy cost, measured: GSM8K 96.0% vs
+95.6%, HumanEval 89.6% vs 91.5% -- neither difference is significant (p=1.00 and
+p=0.51, McNemar). `AI2_BIG_MODEL=ud-q3_k_xl` is the quality option -- 115 tok/s
+with no measurable loss against Q4_K_M on either benchmark.
 
-Since the remote-desktop daemons were removed, Q2_K loads at `--n-cpu-moe 0`:
-every one of the 48 layers' experts is in VRAM and nothing is left on the CPU.
-The 8192-token context takes two of those layers back (191 -> 185 tok/s), which
-is what pays for a ~5,000-token document being answerable at all. A conversation
-that outgrows the window drops its oldest turns and says so, rather than
-refusing every later message.
+(An earlier figure of 191-212 was measured at `n_ctx` 4096, where the model fits
+at `--n-cpu-moe 0`. The 8192 context shipped since costs two expert layers and
+about 6% of decode -- see `Runtime.n_ctx` for why that trade is worth taking.)
+
+Since the remote-desktop daemons were removed there is enough VRAM for all 48
+layers' experts (`--n-cpu-moe 0`) -- at `n_ctx` 4096. The 8192-token context
+shipped instead takes two of those layers back, which is what pays for a
+~5,000-token document being answerable at all: at 4096 the server refused it
+outright rather than truncating. A conversation that outgrows the window drops
+its oldest exchanges and says so, rather than refusing every later message.
 
 > **Before any GPU work:** this card crashes at its stock 250 W limit (four
 > `Xid 79` bus drops, none at 175 W) and **the cap resets on every reboot**. Run
@@ -42,7 +47,7 @@ launch path; details and sources in `config.BIG_MODELS` and `PLAN.md`.
 | `q4_k_m` | 17.3 GiB | 82 | reference: 150/164, 239/250 |
 | `ud-q3_k_xl` | 12.9 GiB | 115 | 0.044 / 151/164 / 241/250 |
 | `iq3_xxs` | 11.4 GiB | ~113 | 0.076 / - / - |
-| `q2_k` (default) | 10.2 GiB | 191-212 | 0.098 / 147/164 / 240/250 |
+| `q2_k` (default) | 10.2 GiB | 185-197 | 0.098 / 147/164 / 240/250 |
 
 The three smaller files come from `python3 tools/download_quants.py` (Hugging Face,
 sha256-verified, 44 GB total with UD-IQ2_XXS). If the chosen file is missing the app
