@@ -1,0 +1,67 @@
+{
+ "ub 512  + ngram 12/16": [
+  {
+   "n_cpu_moe": 1,
+   "edit_tps": 200.95655319319962,
+   "edit_texts": [
+    "```python\nfrom typing import List, Dict, Union\n\ndef summarize_orders(orders: List[Dict[str, Union[float, str]]]) -> Dict[str, float]:\n    \"\"\"\n    Summarize a list of orders by calculating the total amount, count of completed orders,\n    and the average amount of completed orders.\n\n    This function iterates through the list of orders and only considers those with a\n    status of \"complete\". It computes the total amount, the number of completed orders,\n    and the average amount (total divided by count).\n\n    Args:\n        orders (List[Dict[str, Union[float, str]]]): A list of order dictionaries, where each\n            order contains at least a \"status\" key (str) and an \"amount\" key (float).\n\n    Returns:\n        Dict[str, float]: A dictionary containing:\n            - \"total\": the sum of amounts from completed orders (float)\n            - \"count\": the number of completed orders (float)\n            - \"average\": the average amount of completed orders (float)\n\n    Example:\n        >>> orders = [\n        ...     {\"status\": \"complete\", \"amount\": 100.0},\n        ...     {\"status\": \"pending\", \"amount\": 50.0},\n        ...     {\"status\": \"complete\", \"amount\": 200.0}\n        ... ]\n        >>> summarize_orders(orders)\n        {'total': 300.0, 'count': 2, 'average': 150.0}\n    \"\"\"\n    total = 0\n    count = 0\n    for order in orders:\n        if order[\"status\"] == \"complete\":\n            total += order[\"amount\"]\n            count += 1\n    average = total / count if count > 0 else 0.0\n    return {\"total\": total, \"count",
+    "Here's the rewritten function that safely handles an empty list and avoids division by zero:\n\n```python\ndef summarize_orders(orders):\n    total = 0\n    count = 0\n    for order in orders:\n        if order[\"status\"] == \"complete\":\n            total += order[\"amount\"]\n            count += 1\n    \n    if count == 0:\n        average = None\n    else:\n        average = total / count\n    \n    return {\"total\": total, \"count\": count, \"average\": average}\n```\n\nThis version:\n- Checks if `count` is zero before calculating the average\n- Returns `None` for the average when there are no complete orders\n- Maintains the same structure and functionality while being safe from division by zero\n- Returns a dictionary with the total, count, and average (or None if no complete orders)"
+   ],
+   "fresh_tps": 190.28114427925183,
+   "long_tps": 147.56065723310354,
+   "long_prefill_tps": 2938.64790002039
+  }
+ ],
+ "ub 1024 + ngram 12/16": [
+  {
+   "n_cpu_moe": 2,
+   "edit_tps": 196.48126310387673,
+   "edit_texts": [
+    "```python\nfrom typing import List, Dict, Union\n\ndef summarize_orders(orders: List[Dict[str, Union[float, str]]]) -> Dict[str, float]:\n    \"\"\"\n    Summarize a list of orders by calculating the total amount, count of complete orders,\n    and the average amount of complete orders.\n\n    This function iterates through the provided list of orders, filtering only those with\n    a status of \"complete\". It then computes the total amount, the number of complete orders,\n    and the average amount (total divided by count).\n\n    Args:\n        orders (List[Dict[str, Union[float, str]]]): A list of order dictionaries, where each\n            order contains at least a \"status\" key (str) and an \"amount\" key (float).\n\n    Returns:\n        Dict[str, float]: A dictionary containing:\n            - \"total\": the sum of amounts for complete orders (float)\n            - \"count\": the number of complete orders (int)\n            - \"average\": the average amount of complete orders (float)\n\n    Example:\n        >>> orders = [\n        ...     {\"status\": \"complete\", \"amount\": 100.0},\n        ...     {\"status\": \"pending\", \"amount\": 50.0},\n        ...     {\"status\": \"complete\", \"amount\": 200.0}\n        ... ]\n        >>> summarize_orders(orders)\n        {'total': 300.0, 'count': 2, 'average': 150.0}\n    \"\"\"\n    total = 0\n    count = 0\n    for order in orders:\n        if order[\"status\"] == \"complete\":\n            total += order[\"amount\"]\n            count += 1\n    average = total / count\n    return {\"total\": total, \"count\": count, \"average\": average}\n",
+    "Here's the rewritten function that safely handles an empty list and avoids division by zero:\n\n```python\ndef summarize_orders(orders):\n    total = 0\n    count = 0\n    for order in orders:\n        if order[\"status\"] == \"complete\":\n            total += order[\"amount\"]\n            count += 1\n    \n    if count == 0:\n        average = None\n    else:\n        average = total / count\n    \n    return {\"total\": total, \"count\": count, \"average\": average}\n```\n\nThis version:\n- Checks if `count` is zero before calculating the average\n- Returns `None` for the average when there are no complete orders\n- Maintains the same structure and functionality while being safe from division by zero\n\nThe function now correctly handles the case where the input list is empty or contains no complete orders."
+   ],
+   "fresh_tps": 184.31030721141866,
+   "long_tps": 144.24693339696105,
+   "long_prefill_tps": 3751.347105777485
+  }
+ ],
+ "ub 2048 + ngram 12/16": [
+  {
+   "n_cpu_moe": 2,
+   "edit_tps": 194.99548789510567,
+   "edit_texts": [
+    "```python\nfrom typing import List, Dict, Union\n\ndef summarize_orders(orders: List[Dict[str, Union[float, str]]]) -> Dict[str, float]:\n    \"\"\"\n    Summarize a list of orders by calculating the total amount, count of complete orders,\n    and the average amount of complete orders.\n\n    This function iterates through the provided list of orders, filtering only those with\n    a status of \"complete\". It then computes the total amount, the number of complete orders,\n    and the average amount (total divided by count).\n\n    Args:\n        orders (List[Dict[str, Union[float, str]]]): A list of order dictionaries, where each\n            order contains at least a \"status\" key (str) and an \"amount\" key (float).\n\n    Returns:\n        Dict[str, float]: A dictionary containing:\n            - \"total\": the sum of amounts for complete orders (float)\n            - \"count\": the number of complete orders (int)\n            - \"average\": the average amount of complete orders (float)\n\n    Example:\n        >>> orders = [\n        ...     {\"status\": \"complete\", \"amount\": 100.0},\n        ...     {\"status\": \"pending\", \"amount\": 50.0},\n        ...     {\"status\": \"complete\", \"amount\": 200.0}\n        ... ]\n        >>> summarize_orders(orders)\n        {'total': 300.0, 'count': 2, 'average': 150.0}\n    \"\"\"\n    total = 0\n    count = 0\n    for order in orders:\n        if order[\"status\"] == \"complete\":\n            total += order[\"amount\"]\n            count += 1\n    average = total / count\n    return {\"total\": total, \"count\": count, \"average\": average}\n",
+    "Here's the rewritten function that safely handles an empty list and avoids division by zero:\n\n```python\ndef summarize_orders(orders):\n    total = 0\n    count = 0\n    for order in orders:\n        if order[\"status\"] == \"complete\":\n            total += order[\"amount\"]\n            count += 1\n    \n    if count == 0:\n        average = None\n    else:\n        average = total / count\n    \n    return {\"total\": total, \"count\": count, \"average\": average}\n```\n\nThis version:\n- Checks if `count` is zero before calculating the average\n- Returns `None` for the average when there are no complete orders\n- Maintains the same structure and functionality while being safe from division by zero\n\nThe function now correctly handles the case where the input list is empty or contains no complete orders."
+   ],
+   "fresh_tps": 182.88550751626093,
+   "long_tps": 147.5247234696141,
+   "long_prefill_tps": 4114.353827751396
+  }
+ ],
+ "ub 1024 + no spec": [
+  {
+   "n_cpu_moe": 2,
+   "edit_tps": 181.1881412361561,
+   "edit_texts": [
+    "```python\nfrom typing import List, Dict, Union\n\ndef summarize_orders(orders: List[Dict[str, Union[float, str]]]) -> Dict[str, float]:\n    \"\"\"\n    Summarize a list of orders by calculating the total amount, count of complete orders,\n    and the average amount of complete orders.\n\n    This function iterates through the provided list of orders, filtering only those with\n    a status of \"complete\". It then computes the total amount, the number of complete orders,\n    and the average amount (total divided by count).\n\n    Args:\n        orders (List[Dict[str, Union[float, str]]]): A list of order dictionaries, where each\n            order contains at least a \"status\" key (str) and an \"amount\" key (float).\n\n    Returns:\n        Dict[str, float]: A dictionary containing:\n            - \"total\": the sum of amounts for complete orders (float)\n            - \"count\": the number of complete orders (int)\n            - \"average\": the average amount of complete orders (float)\n\n    Example:\n        >>> orders = [\n        ...     {\"status\": \"complete\", \"amount\": 100.0},\n        ...     {\"status\": \"pending\", \"amount\": 50.0},\n        ...     {\"status\": \"complete\", \"amount\": 200.0}\n        ... ]\n        >>> summarize_orders(orders)\n        {'total': 300.0, 'count': 2, 'average': 150.0}\n    \"\"\"\n    total = 0\n    count = 0\n    for order in orders:\n        if order[\"status\"] == \"complete\":\n            total += order[\"amount\"]\n            count += 1\n    average = total / count if count > 0 else 0.0\n    return {\"total\": total,",
+    "Here's the rewritten function that safely handles an empty list and avoids division by zero:\n\n```python\ndef summarize_orders(orders):\n    total = 0\n    count = 0\n    for order in orders:\n        if order[\"status\"] == \"complete\":\n            total += order[\"amount\"]\n            count += 1\n    \n    if count == 0:\n        average = None\n    else:\n        average = total / count\n    \n    return {\"total\": total, \"count\": count, \"average\": average}\n```\n\nThis version:\n- Checks if `count` is zero before calculating the average\n- Returns `None` for the average when there are no complete orders\n- Maintains the same structure and functionality while being safe from division by zero\n- Returns a dictionary with the total, count, and average (or None if no complete orders)"
+   ],
+   "fresh_tps": 183.87766796696286,
+   "long_tps": 144.60718491127318,
+   "long_prefill_tps": 3719.413315182737
+  }
+ ],
+ "ub 1024 + ngram 8/24": [
+  {
+   "n_cpu_moe": 2,
+   "edit_tps": 194.7612048335934,
+   "edit_texts": [
+    "```python\nfrom typing import List, Dict, Union\n\ndef summarize_orders(orders: List[Dict[str, Union[float, str]]]) -> Dict[str, float]:\n    \"\"\"\n    Summarize a list of orders by calculating the total amount, count of complete orders,\n    and the average amount of complete orders.\n\n    This function iterates through the provided list of orders, filtering only those with\n    a status of \"complete\". It then computes the total amount, the number of complete orders,\n    and the average amount of complete orders.\n\n    Args:\n        orders (List[Dict[str, Union[float, str]]]): A list of order dictionaries, where each\n            order contains at least a \"status\" key (str) and an \"amount\" key (float).\n\n    Returns:\n        Dict[str, float]: A dictionary containing:\n            - \"total\": The sum of amounts from complete orders.\n            - \"count\": The number of complete orders.\n            - \"average\": The average amount of complete orders (total / count).\n            If no complete orders are found, the average will be 0.0.\n\n    Example:\n        >>> orders = [\n        ...     {\"status\": \"complete\", \"amount\": 100.0},\n        ...     {\"status\": \"pending\", \"amount\": 50.0},\n        ...     {\"status\": \"complete\", \"amount\": 200.0}\n        ... ]\n        >>> summarize_orders(orders)\n        {'total': 300.0, 'count': 2, 'average': 150.0}\n    \"\"\"\n    total = 0\n    count = 0\n    for order in orders:\n        if order[\"status\"] == \"complete\":\n            total += order[\"amount\"]\n            count += 1\n    average = total / count if count > 0",
+    "Here's the rewritten function that safely handles an empty list and avoids division by zero:\n\n```python\ndef summarize_orders(orders):\n    total = 0\n    count = 0\n    for order in orders:\n        if order[\"status\"] == \"complete\":\n            total += order[\"amount\"]\n            count += 1\n    \n    if count == 0:\n        average = None\n    else:\n        average = total / count\n    \n    return {\"total\": total, \"count\": count, \"average\": average}\n```\n\nThis version:\n- Checks if `count` is zero before calculating the average\n- Returns `None` for the average when there are no complete orders\n- Maintains the same structure and functionality for non-empty lists\n- Prevents division by zero when the input list is empty or contains no complete orders"
+   ],
+   "fresh_tps": 183.5993034041577,
+   "long_tps": 142.32772684290146,
+   "long_prefill_tps": 3743.5461992638984
+  }
+ ]
+}

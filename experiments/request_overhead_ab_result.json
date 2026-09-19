@@ -1,0 +1,142 @@
+{
+  "default": {
+    "plain": {
+      "server": [
+        181.94855530951787,
+        189.4577921917734,
+        189.7021380023772
+      ],
+      "client": [
+        178.49569756898626,
+        188.63228845539746,
+        188.86235687350006
+      ],
+      "texts": [
+        "A **hash map** (also known as a **hash table**) is a data structure that stores key-value pairs and uses a **hash function** to compute an index (or \"bucket\") where the key-value pair should be stored. However, since the hash function maps keys to a finite number of indices, **collisions**—where two different keys hash to the same index—are inevitable.\n\nTo handle collisions, hash maps use several strategies. The most common approaches are:\n\n---\n\n### 1. **Chaining (Separate Chaining)**\n\nThis is the most widely used method.\n\n- **How it works**:\n  - Each bucket (index) in the hash map is a **linked list** (or another data structure like a tree or array).\n  - When a collision occurs (i.e., two keys hash to the same index), both key-value pairs are stored in the same bucket.\n  - The linked list allows multiple entries to",
+        "Here's a Python class implementing a Least Recently Used (LRU) cache with `get` and `put` methods:\n\n```python\nclass LRUCache:\n    def __init__(self, capacity: int):\n        \"\"\"\n        Initialize the LRU cache with a given capacity.\n        \n        Args:\n            capacity (int): Maximum number of items the cache can hold\n        \"\"\"\n        if capacity <= 0:\n            raise ValueError(\"Capacity must be positive\")\n        \n        self.capacity = capacity\n        self.cache = {}  # Dictionary to store key-value pairs\n        self.order = []  # List to maintain access order (most recent at end)\n    \n    def get(self, key):\n        \"\"\"\n        Retrieve a value from the cache.\n        \n        Args:\n            key: The key to look up\n            \n        Returns:\n            The value if key exists, otherwise None\n        \"\"\"\n        if key in self.cache:\n            # Move the key to the",
+        "The French Revolution was driven by a combination of long-standing social, economic, and political tensions. France was deeply divided by its rigid social structure, known as the Ancien Régime, which divided society into three estates: the clergy, the nobility, and the common people. The Third Estate, comprising peasants, workers, and the bourgeoisie, bore the brunt of taxation while having little political power, fueling widespread resentment.\n\nEconomic hardship played a crucial role. France faced a severe financial crisis due to excessive spending by the monarchy, costly wars (including support for the American Revolution), and an inefficient tax system. The government was unable to collect sufficient revenue, leading to mounting debt and a loss of confidence in the monarchy’s ability to manage the economy. Bread prices soared, and widespread famine exacerbated public discontent.\n\nPolitical discontent was further intensified by Enlightenment ideas, which promoted concepts of liberty, equality, and popular sovereignty. These ideals inspired the bourgeoisie and other"
+      ]
+    },
+    "penalty": {
+      "server": [
+        175.0699215893431,
+        177.48405262648666,
+        178.0197527750683
+      ],
+      "client": [
+        173.19430351427764,
+        176.7764781111061,
+        177.3121487057376
+      ],
+      "texts": [
+        "A **hash map** (also known as a **hash table**) is a data structure that stores key-value pairs and uses a **hash function** to compute an index (or \"bucket\") where the value should be stored. However, since multiple keys can hash to the same index due to the nature of hashing, **collisions** are inevitable in practice.\n\nHere’s how hash maps handle collisions:\n\n---\n\n### 🔹 1. **Collision Occurrence**\n- A collision occurs when two different keys produce the same hash code (i.e., map to the same bucket).\n- For example: `hash(\"apple\")` and `hash(\"orange\")` might both result in index 5.\n\n---\n\n### 🔹 2. **Common Collision Resolution Techniques**\n\nThere are two primary methods used by hash maps to handle collisions:\n\n#### ✅ A. **Chaining (Separate Chaining)**\n- Each bucket is a container (like a linked",
+        "Here's a Python class that implements a **Least Recently Used (LRU) Cache** using `collections.OrderedDict` for efficient operations:\n\n```python\nfrom collections import OrderedDict\n\nclass LRUCache:\n    def __init__(self, capacity: int):\n        \"\"\"\n        Initialize the LRU cache with a given capacity.\n        \n        Args:\n            capacity (int): Maximum number of items the cache can hold\n        \"\"\"\n        if capacity <= 0:\n            raise ValueError(\"Capacity must be positive\")\n        \n        self.capacity = capacity\n        self.cache = OrderedDict()\n    \n    def get(self, key) -> any:\n        \"\"\"\n        Retrieve a value from the cache by key.\n        \n        Args:\n            key: The key to look up\n            \n        Returns:\n            The value associated with the key if present, otherwise None\n        \"\"\"\n        if key not in self.cache:\n            return None\n        \n        # Move the accessed item to the end (most",
+        "The French Revolution was driven by a combination of long-standing social, economic, and political tensions that culminated in widespread upheaval. One major cause was the deep-seated inequality within France’s social structure, known as the Ancien Régime. Society was divided into three estates: the clergy (First Estate), the nobility (Second Estate), and the common people (Third Estate). The Third Estate, which included peasants, workers, and the bourgeoisie, bore the brunt of taxation while having little political power or representation, creating widespread resentment.\n\nEconomic hardship further fueled discontent. France faced a severe financial crisis due to years of costly wars, including support for the American Revolution, extravagant spending by King Louis XVI, and an inefficient tax system that failed to generate sufficient revenue. The government was unable to pay its debts, leading to increased taxes on the already burdened peasantry and middle class. Poor harvests in the late 1780s"
+      ]
+    },
+    "stream": {
+      "server": [
+        185.9415891614131,
+        189.6837714666211,
+        188.31578988665743
+      ],
+      "client": [
+        185.00560975408385,
+        188.7296164787384,
+        187.36548229533125
+      ],
+      "texts": [
+        "A **hash map** (also known as a **hash table**) is a data structure that stores key-value pairs and uses a **hash function** to compute an index (or \"bucket\") where the key-value pair should be stored. However, since the hash function maps keys to a finite number of indices, **collisions**—where two different keys hash to the same index—are inevitable.\n\nTo handle collisions, hash maps use several strategies. The most common approaches are:\n\n---\n\n### 1. **Chaining (Separate Chaining)**\n\nThis is the most widely used method.\n\n- **How it works**:\n  - Each bucket (index) in the hash map is a **linked list** (or another data structure like a tree or array).\n  - When a collision occurs (i.e., two keys hash to the same index), both key-value pairs are stored in the same bucket.\n  - The linked list allows multiple entries to",
+        "Here's a Python class implementing a Least Recently Used (LRU) cache with `get` and `put` methods:\n\n```python\nclass LRUCache:\n    def __init__(self, capacity: int):\n        \"\"\"\n        Initialize the LRU cache with a given capacity.\n        \n        Args:\n            capacity (int): Maximum number of items the cache can hold\n        \"\"\"\n        if capacity <= 0:\n            raise ValueError(\"Capacity must be positive\")\n        \n        self.capacity = capacity\n        self.cache = {}  # Dictionary to store key-value pairs\n        self.order = []  # List to maintain access order (most recent at end)\n    \n    def get(self, key):\n        \"\"\"\n        Retrieve a value from the cache.\n        \n        Args:\n            key: The key to look up\n            \n        Returns:\n            The value if key exists, otherwise None\n        \"\"\"\n        if key in self.cache:\n            # Move the key to the",
+        "The French Revolution was driven by a combination of long-standing social, economic, and political tensions. France was deeply divided by its rigid social structure, known as the Ancien Régime, which divided society into three estates: the clergy, the nobility, and the common people. The Third Estate, comprising peasants, workers, and the bourgeoisie, bore the brunt of taxation while having little political power, fueling widespread resentment.\n\nEconomic hardship played a crucial role. France faced a severe financial crisis due to excessive spending by the monarchy, costly wars (including support for the American Revolution), and an inefficient tax system. The government was unable to collect sufficient revenue, leading to mounting debt and a loss of confidence in the monarchy’s ability to manage the economy. Bread prices soared, and widespread famine exacerbated public discontent.\n\nPolitical discontent was further intensified by Enlightenment ideas, which promoted concepts of liberty, equality, and popular sovereignty. These ideals inspired the bourgeoisie and other"
+      ]
+    },
+    "stream+penalty (app)": {
+      "server": [
+        176.3119398996675,
+        177.57110474198086,
+        177.24298536268347
+      ],
+      "client": [
+        174.5191646767333,
+        175.77842823185188,
+        175.4440867371127
+      ],
+      "texts": [
+        "A **hash map** (also known as a **hash table**) is a data structure that stores key-value pairs and uses a **hash function** to compute an index (or \"bucket\") where the value should be stored. However, since multiple keys can hash to the same index due to the nature of hashing, **collisions** are inevitable in practice.\n\nHere’s how hash maps handle collisions:\n\n---\n\n### 🔹 1. **Collision Occurrence**\n- A collision occurs when two different keys produce the same hash code (i.e., map to the same bucket).\n- For example: `hash(\"apple\")` and `hash(\"orange\")` might both result in index 5.\n\n---\n\n### 🔹 2. **Common Collision Resolution Techniques**\n\nThere are two primary methods used by hash maps to handle collisions:\n\n#### ✅ A. **Chaining (Separate Chaining)**\n- Each bucket is a container (like a linked",
+        "Here's a Python class that implements a **Least Recently Used (LRU) Cache** using `collections.OrderedDict` for efficient operations:\n\n```python\nfrom collections import OrderedDict\n\nclass LRUCache:\n    def __init__(self, capacity: int):\n        \"\"\"\n        Initialize the LRU cache with a given capacity.\n        \n        Args:\n            capacity (int): Maximum number of items the cache can hold\n        \"\"\"\n        if capacity <= 0:\n            raise ValueError(\"Capacity must be positive\")\n        \n        self.capacity = capacity\n        self.cache = OrderedDict()\n    \n    def get(self, key) -> any:\n        \"\"\"\n        Retrieve a value from the cache by key.\n        \n        Args:\n            key: The key to look up\n            \n        Returns:\n            The value associated with the key if present, otherwise None\n        \"\"\"\n        if key not in self.cache:\n            return None\n        \n        # Move the accessed item to the end (most",
+        "The French Revolution was driven by a combination of long-standing social, economic, and political tensions that culminated in widespread upheaval. One major cause was the deep-seated inequality within France’s social structure, known as the Ancien Régime. Society was divided into three estates: the clergy (First Estate), the nobility (Second Estate), and the common people (Third Estate). The Third Estate, which included peasants, workers, and the bourgeoisie, bore the brunt of taxation while having little political power or representation, creating widespread resentment.\n\nEconomic hardship further fueled discontent. France faced a severe financial crisis due to years of costly wars, including support for the American Revolution, extravagant spending by King Louis XVI, and an inefficient tax system that failed to generate sufficient revenue. The government was unable to pay its debts, leading to increased taxes on the already burdened peasantry and middle class. Poor harvests in the late 1780s"
+      ]
+    }
+  },
+  "backend_sampling": {
+    "plain": {
+      "server": [
+        183.66087784160206,
+        185.98373610974332,
+        187.68952242792037
+      ],
+      "client": [
+        180.31537215605505,
+        185.16328275470514,
+        186.88961570092613
+      ],
+      "texts": [
+        "A **hash map** (also known as a **hash table**) is a data structure that stores key-value pairs and uses a **hash function** to compute an index (or \"bucket\") where the key-value pair should be stored. However, since the hash function maps keys to a finite number of indices, **collisions**—where two different keys hash to the same index—are inevitable.\n\nTo handle collisions, hash maps use several strategies. The most common approaches are:\n\n---\n\n### 1. **Chaining (Separate Chaining)**\n\nThis is the most widely used method.\n\n- **How it works**:\n  - Each bucket (index) in the hash map is a **linked list** (or another data structure like a tree or array).\n  - When a collision occurs (i.e., two keys hash to the same index), both key-value pairs are stored in the same bucket.\n  - The linked list allows multiple entries to",
+        "Here's a Python class implementing a Least Recently Used (LRU) cache with `get` and `put` methods:\n\n```python\nclass LRUCache:\n    def __init__(self, capacity: int):\n        \"\"\"\n        Initialize the LRU cache with a given capacity.\n        \n        Args:\n            capacity (int): Maximum number of items the cache can hold\n        \"\"\"\n        if capacity <= 0:\n            raise ValueError(\"Capacity must be positive\")\n        \n        self.capacity = capacity\n        self.cache = {}  # Dictionary to store key-value pairs\n        self.order = []  # List to maintain access order (most recent at end)\n    \n    def get(self, key):\n        \"\"\"\n        Retrieve a value from the cache.\n        \n        Args:\n            key: The key to look up\n            \n        Returns:\n            The value if key exists, otherwise None\n        \"\"\"\n        if key in self.cache:\n            # Move the key to the",
+        "The French Revolution was driven by a combination of long-standing social, economic, and political tensions. France was deeply divided by its rigid social structure, known as the Ancien Régime, which divided society into three estates: the clergy, the nobility, and the common people. The Third Estate, comprising peasants, workers, and the bourgeoisie, bore the brunt of taxation while having little political power, fueling widespread resentment.\n\nEconomic hardship played a crucial role. France faced a severe financial crisis due to excessive spending by the monarchy, costly wars (including support for the American Revolution), and an inefficient tax system. The government was unable to collect sufficient revenue, leading to mounting debt and a loss of confidence in the monarchy’s ability to manage the economy. Bread prices soared, and widespread famine exacerbated public discontent.\n\nPolitical discontent was further intensified by Enlightenment ideas, which promoted concepts of liberty, equality, and popular sovereignty. These ideals inspired the bourgeoisie and other"
+      ]
+    },
+    "penalty": {
+      "server": [
+        178.28103653089863,
+        185.79320635528885,
+        184.68280567809853
+      ],
+      "client": [
+        176.49644542847176,
+        184.5693993047377,
+        183.87971656790145
+      ],
+      "texts": [
+        "A **hash map** (also known as a **hash table**) is a data structure that stores key-value pairs and uses a **hash function** to compute an index (or \"bucket\") where the value should be stored. However, since multiple keys can hash to the same index due to the nature of hashing, **collisions** are inevitable in practice.\n\nHere’s how hash maps handle collisions:\n\n---\n\n### 🔹 1. **Collision Occurrence**\n- A collision occurs when two different keys produce the same hash code (i.e., map to the same bucket).\n- For example: `hash(\"apple\")` and `hash(\"orange\")` might both result in index 5.\n\n---\n\n### 🔹 2. **Common Collision Resolution Techniques**\n\nThere are two primary methods used by hash maps to handle collisions:\n\n#### ✅ A. **Chaining (Separate Chaining)**\n- Each bucket is a container (like a linked",
+        "Here's a Python class that implements a **Least Recently Used (LRU) Cache** using `collections.OrderedDict` for efficient operations:\n\n```python\nfrom collections import OrderedDict\n\nclass LRUCache:\n    def __init__(self, capacity: int):\n        \"\"\"\n        Initialize the LRU cache with a given capacity.\n        \n        Args:\n            capacity (int): Maximum number of items the cache can hold\n        \"\"\"\n        if capacity <= 0:\n            raise ValueError(\"Capacity must be positive\")\n        \n        self.capacity = capacity\n        self.cache = OrderedDict()\n    \n    def get(self, key) -> any:\n        \"\"\"\n        Retrieve a value from the cache by key.\n        \n        Args:\n            key: The key to look up\n            \n        Returns:\n            The value associated with the key if present, otherwise None\n        \"\"\"\n        if key not in self.cache:\n            return None\n        \n        # Move the accessed item to the end (most",
+        "The French Revolution was driven by a combination of long-standing social, economic, and political tensions that culminated in widespread upheaval. One major cause was the deep-seated inequality within France’s social structure, known as the Ancien Régime. Society was divided into three estates: the clergy (First Estate), the nobility (Second Estate), and the common people (Third Estate). The Third Estate, which included peasants, workers, and the bourgeoisie, bore the brunt of taxation while having little political power or representation, creating widespread resentment.\n\nEconomic hardship further fueled discontent. France faced a severe financial crisis due to years of costly wars, including support for the American Revolution, extravagant spending by King Louis XVI, and an inefficient tax system that failed to generate sufficient revenue. The government was unable to pay its debts, leading to increased taxes on the already burdened peasantry and middle class. Poor harvests in the late 1780s"
+      ]
+    },
+    "stream": {
+      "server": [
+        184.1314493958187,
+        187.321885667957,
+        184.99290057627218
+      ],
+      "client": [
+        183.202149948774,
+        186.37737114824228,
+        184.05800807037133
+      ],
+      "texts": [
+        "A **hash map** (also known as a **hash table**) is a data structure that stores key-value pairs and uses a **hash function** to compute an index (or \"bucket\") where the key-value pair should be stored. However, since the hash function maps keys to a finite number of indices, **collisions**—where two different keys hash to the same index—are inevitable.\n\nTo handle collisions, hash maps use several strategies. The most common approaches are:\n\n---\n\n### 1. **Chaining (Separate Chaining)**\n\nThis is the most widely used method.\n\n- **How it works**:\n  - Each bucket (index) in the hash map is a **linked list** (or another data structure like a tree or array).\n  - When a collision occurs (i.e., two keys hash to the same index), both key-value pairs are stored in the same bucket.\n  - The linked list allows multiple entries to",
+        "Here's a Python class implementing a Least Recently Used (LRU) cache with `get` and `put` methods:\n\n```python\nclass LRUCache:\n    def __init__(self, capacity: int):\n        \"\"\"\n        Initialize the LRU cache with a given capacity.\n        \n        Args:\n            capacity (int): Maximum number of items the cache can hold\n        \"\"\"\n        if capacity <= 0:\n            raise ValueError(\"Capacity must be positive\")\n        \n        self.capacity = capacity\n        self.cache = {}  # Dictionary to store key-value pairs\n        self.order = []  # List to maintain access order (most recent at end)\n    \n    def get(self, key):\n        \"\"\"\n        Retrieve a value from the cache.\n        \n        Args:\n            key: The key to look up\n            \n        Returns:\n            The value if key exists, otherwise None\n        \"\"\"\n        if key in self.cache:\n            # Move the key to the",
+        "The French Revolution was driven by a combination of long-standing social, economic, and political tensions. France was deeply divided by its rigid social structure, known as the Ancien Régime, which divided society into three estates: the clergy, the nobility, and the common people. The Third Estate, comprising peasants, workers, and the bourgeoisie, bore the brunt of taxation while having little political power, fueling widespread resentment.\n\nEconomic hardship played a crucial role. France faced a severe financial crisis due to excessive spending by the monarchy, costly wars (including support for the American Revolution), and an inefficient tax system. The government was unable to collect sufficient revenue, leading to mounting debt and a loss of confidence in the monarchy’s ability to manage the economy. Bread prices soared, and widespread famine exacerbated public discontent.\n\nPolitical discontent was further intensified by Enlightenment ideas, which promoted concepts of liberty, equality, and popular sovereignty. These ideals inspired the bourgeoisie and other"
+      ]
+    },
+    "stream+penalty (app)": {
+      "server": [
+        183.6010476734783,
+        183.78012749746347,
+        183.86407592820237
+      ],
+      "client": [
+        181.72453163677702,
+        181.9610531780932,
+        182.0082793991683
+      ],
+      "texts": [
+        "A **hash map** (also known as a **hash table**) is a data structure that stores key-value pairs and uses a **hash function** to compute an index (or \"bucket\") where the value should be stored. However, since multiple keys can hash to the same index due to the nature of hashing, **collisions** are inevitable in practice.\n\nHere’s how hash maps handle collisions:\n\n---\n\n### 🔹 1. **Collision Occurrence**\n- A collision occurs when two different keys produce the same hash code (i.e., map to the same bucket).\n- For example: `hash(\"apple\")` and `hash(\"orange\")` might both result in index 5.\n\n---\n\n### 🔹 2. **Common Collision Resolution Techniques**\n\nThere are two primary methods used by hash maps to handle collisions:\n\n#### ✅ A. **Chaining (Separate Chaining)**\n- Each bucket is a container (like a linked",
+        "Here's a Python class that implements a **Least Recently Used (LRU) Cache** using `collections.OrderedDict` for efficient operations:\n\n```python\nfrom collections import OrderedDict\n\nclass LRUCache:\n    def __init__(self, capacity: int):\n        \"\"\"\n        Initialize the LRU cache with a given capacity.\n        \n        Args:\n            capacity (int): Maximum number of items the cache can hold\n        \"\"\"\n        if capacity <= 0:\n            raise ValueError(\"Capacity must be positive\")\n        \n        self.capacity = capacity\n        self.cache = OrderedDict()\n    \n    def get(self, key) -> any:\n        \"\"\"\n        Retrieve a value from the cache by key.\n        \n        Args:\n            key: The key to look up\n            \n        Returns:\n            The value associated with the key if present, otherwise None\n        \"\"\"\n        if key not in self.cache:\n            return None\n        \n        # Move the accessed item to the end (most",
+        "The French Revolution was driven by a combination of long-standing social, economic, and political tensions that culminated in widespread upheaval. One major cause was the deep-seated inequality within France’s social structure, known as the Ancien Régime. Society was divided into three estates: the clergy (First Estate), the nobility (Second Estate), and the common people (Third Estate). The Third Estate, which included peasants, workers, and the bourgeoisie, bore the brunt of taxation while having little political power or representation, creating widespread resentment.\n\nEconomic hardship further fueled discontent. France faced a severe financial crisis due to years of costly wars, including support for the American Revolution, extravagant spending by King Louis XVI, and an inefficient tax system that failed to generate sufficient revenue. The government was unable to pay its debts, leading to increased taxes on the already burdened peasantry and middle class. Poor harvests in the late 1780s"
+      ]
+    }
+  }
+}

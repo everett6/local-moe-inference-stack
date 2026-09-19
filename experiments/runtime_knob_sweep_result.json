@@ -1,0 +1,246 @@
+{
+  "kv_and_slots": [
+    {
+      "arm": "f16_np4",
+      "args": [
+        "-t",
+        "16"
+      ],
+      "n_cpu_moe": 20,
+      "free_mb": 15,
+      "decode_tps": 78.32,
+      "decode_range": [
+        78.12,
+        78.51
+      ],
+      "prefill_tps": 1598.2,
+      "prefill_n": 2947
+    },
+    {
+      "arm": "q8_np4",
+      "args": [
+        "-ctk",
+        "q8_0",
+        "-ctv",
+        "q8_0",
+        "-t",
+        "16"
+      ],
+      "n_cpu_moe": 20,
+      "free_mb": 195,
+      "decode_tps": 76.38,
+      "decode_range": [
+        76.24,
+        76.53
+      ],
+      "prefill_tps": 1592.7,
+      "prefill_n": 2947
+    },
+    {
+      "arm": "f16_np1",
+      "args": [
+        "-t",
+        "16",
+        "-np",
+        "1"
+      ],
+      "n_cpu_moe": 20,
+      "free_mb": 15,
+      "decode_tps": 81.08,
+      "decode_range": [
+        79.92,
+        82.25
+      ],
+      "prefill_tps": 1621.9,
+      "prefill_n": 2947
+    },
+    {
+      "arm": "q8_np1",
+      "args": [
+        "-ctk",
+        "q8_0",
+        "-ctv",
+        "q8_0",
+        "-t",
+        "16",
+        "-np",
+        "1"
+      ],
+      "n_cpu_moe": 20,
+      "free_mb": 195,
+      "decode_tps": 79.06,
+      "decode_range": [
+        78.57,
+        79.55
+      ],
+      "prefill_tps": 1599.6,
+      "prefill_n": 2947
+    }
+  ],
+  "threads": [
+    {
+      "arm": "t8_ccd0",
+      "args": [
+        "-np",
+        "1",
+        "-t",
+        "8",
+        "--cpu-range",
+        "0-7",
+        "--cpu-strict",
+        "1"
+      ],
+      "n_cpu_moe": 21,
+      "free_mb": 389,
+      "decode_tps": 72.51,
+      "decode_range": [
+        72.29,
+        72.73
+      ],
+      "prefill_tps": 1556.1,
+      "prefill_n": 2947
+    },
+    {
+      "arm": "t12",
+      "args": [
+        "-np",
+        "1",
+        "-t",
+        "12"
+      ],
+      "n_cpu_moe": 20,
+      "free_mb": 15,
+      "decode_tps": 80.95,
+      "decode_range": [
+        80.25,
+        81.65
+      ],
+      "prefill_tps": 1612.8,
+      "prefill_n": 2947
+    },
+    {
+      "arm": "t16",
+      "args": [
+        "-np",
+        "1",
+        "-t",
+        "16"
+      ],
+      "n_cpu_moe": 20,
+      "free_mb": 15,
+      "decode_tps": 82.03,
+      "decode_range": [
+        80.4,
+        83.67
+      ],
+      "prefill_tps": 1574.3,
+      "prefill_n": 2947
+    },
+    {
+      "arm": "t16_phys",
+      "args": [
+        "-np",
+        "1",
+        "-t",
+        "16",
+        "--cpu-range",
+        "0-15",
+        "--cpu-strict",
+        "1"
+      ],
+      "n_cpu_moe": 20,
+      "free_mb": 15,
+      "decode_tps": 81.31,
+      "decode_range": [
+        78.35,
+        84.26
+      ],
+      "prefill_tps": 1578.7,
+      "prefill_n": 2947
+    },
+    {
+      "arm": "t24",
+      "args": [
+        "-np",
+        "1",
+        "-t",
+        "24"
+      ],
+      "n_cpu_moe": 20,
+      "free_mb": 15,
+      "decode_tps": 76.25,
+      "decode_range": [
+        73.7,
+        78.8
+      ],
+      "prefill_tps": 1595.5,
+      "prefill_n": 2947
+    }
+  ],
+  "ubatch": [
+    {
+      "arm": "ub256",
+      "args": [
+        "-np",
+        "1",
+        "-t",
+        "16",
+        "-ub",
+        "256",
+        "-b",
+        "256"
+      ],
+      "n_cpu_moe": 20,
+      "free_mb": 51,
+      "decode_tps": 80.14,
+      "decode_range": [
+        79.93,
+        80.35
+      ],
+      "prefill_tps": 907.5,
+      "prefill_n": 2947
+    },
+    {
+      "arm": "ub512",
+      "args": [
+        "-np",
+        "1",
+        "-t",
+        "16",
+        "-ub",
+        "512"
+      ],
+      "n_cpu_moe": 20,
+      "free_mb": 15,
+      "decode_tps": 81.28,
+      "decode_range": [
+        78.79,
+        83.77
+      ],
+      "prefill_tps": 1579.1,
+      "prefill_n": 2947
+    },
+    {
+      "arm": "ub1024",
+      "args": [
+        "-np",
+        "1",
+        "-t",
+        "16",
+        "-ub",
+        "1024",
+        "-b",
+        "2048"
+      ],
+      "n_cpu_moe": 21,
+      "free_mb": 315,
+      "decode_tps": 78.61,
+      "decode_range": [
+        77.43,
+        79.78
+      ],
+      "prefill_tps": 2438.9,
+      "prefill_n": 2947
+    }
+  ]
+}

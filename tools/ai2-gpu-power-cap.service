@@ -1,0 +1,34 @@
+[Unit]
+# Re-apply the GPU power cap at every boot.
+#
+# Why this exists: the RTX 5070 in this machine has dropped off the PCIe bus
+# (NVRM: Xid 79) four times, every time at the card's stock 250 W limit and
+# never at 175 W. `nvidia-smi -pl 175` fixes it, and the setting is lost on
+# every reboot -- which has already caught this project out twice, on
+# 2026-09-17 and again on 2026-09-18, both times leaving the machine running
+# uncapped until someone noticed.
+#
+# See PLAN.md, "Hardware fault", for the evidence and for the physical checks
+# that would actually repair the card rather than work around it. This unit is
+# the workaround, not the fix; keep it until the hardware is sorted out.
+Description=Cap the RTX 5070 at 175 W (it crashes at the stock 250 W limit)
+# nvidia-smi needs the driver loaded, which is what nvidia-persistenced waits on.
+# `After` alone does not require it, so the unit still starts on a boot where
+# persistenced is absent; it just runs later.
+After=nvidia-persistenced.service systemd-modules-load.service
+Wants=nvidia-persistenced.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Persistence mode first: without it the driver unloads when no client has the
+# device open, and an unloaded driver forgets the limit again.
+ExecStart=/usr/bin/nvidia-smi -pm 1
+ExecStart=/usr/bin/nvidia-smi -pl 175
+# Do not fail the boot over this. If it did not take, the app's dashboard says
+# so on every refresh (app.gpu_telemetry) and local_engine warns at startup.
+SuccessExitStatus=0 2
+StandardOutput=journal
+
+[Install]
+WantedBy=multi-user.target

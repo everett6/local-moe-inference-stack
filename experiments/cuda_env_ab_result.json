@@ -1,0 +1,134 @@
+{
+  "baseline": [
+    {
+      "decode_tps": 72.66832330258151,
+      "prefill_tps": 1512.370182238811,
+      "rss_gb": 9.18,
+      "pinned_gb": 0.0,
+      "locked_gb": 0.0,
+      "vram_mb": 10374,
+      "load_s": 2.3,
+      "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered prime because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one divisor (itself), it does not meet this criterion. Additionally, excluding "
+    },
+    {
+      "decode_tps": 73.33349629665842,
+      "prefill_tps": 1453.9688366177143,
+      "rss_gb": 9.18,
+      "pinned_gb": 0.0,
+      "locked_gb": 0.0,
+      "vram_mb": 10374,
+      "load_s": 6.0,
+      "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered prime because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one divisor (itself), it does not meet this criterion. Additionally, excluding "
+    }
+  ],
+  "graph_opt": [
+    {
+      "decode_tps": 78.19925365328993,
+      "prefill_tps": 1511.353356158342,
+      "rss_gb": 9.18,
+      "pinned_gb": 0.0,
+      "locked_gb": 0.0,
+      "vram_mb": 10382,
+      "load_s": 2.2,
+      "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\n1 is not considered a prime number because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one divisor (itself), it does not meet this requirement and thus is not prime."
+    },
+    {
+      "decode_tps": 73.96987700042287,
+      "prefill_tps": 1443.750793034135,
+      "rss_gb": 9.18,
+      "pinned_gb": 0.0,
+      "locked_gb": 0.0,
+      "vram_mb": 10382,
+      "load_s": 2.1,
+      "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\n1 is not considered a prime number because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one divisor (itself), it does not meet this requirement. Additionally, including 1"
+    }
+  ],
+  "register_host": [
+    {
+      "decode_tps": 76.59530059107637,
+      "prefill_tps": 1507.87811310058,
+      "rss_gb": 9.18,
+      "pinned_gb": 0.0,
+      "locked_gb": 0.0,
+      "vram_mb": 10374,
+      "load_s": 2.3,
+      "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered prime because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one divisor (itself), it does not meet this criterion. Additionally, excluding "
+    },
+    {
+      "decode_tps": 75.68504425682963,
+      "prefill_tps": 1457.9415764667351,
+      "rss_gb": 9.18,
+      "pinned_gb": 0.0,
+      "locked_gb": 0.0,
+      "vram_mb": 10374,
+      "load_s": 2.1,
+      "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered prime because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one divisor (itself), it does not meet this criterion. Additionally, excluding "
+    }
+  ],
+  "pdl_off": [
+    {
+      "decode_tps": 74.51544006490295,
+      "prefill_tps": 1483.118020362048,
+      "rss_gb": 9.18,
+      "pinned_gb": 0.0,
+      "locked_gb": 0.0,
+      "vram_mb": 10374,
+      "load_s": 2.2,
+      "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered prime because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one divisor (itself), it does not meet this criterion. Additionally, excluding "
+    },
+    {
+      "decode_tps": 73.39403529733224,
+      "prefill_tps": 1511.199904005218,
+      "rss_gb": 9.18,
+      "pinned_gb": 0.0,
+      "locked_gb": 0.0,
+      "vram_mb": 10374,
+      "load_s": 2.0,
+      "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered prime because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one divisor (itself), it does not meet this criterion. Additionally, excluding "
+    }
+  ],
+  "graph_opt+reg": [
+    {
+      "decode_tps": 76.05436302490385,
+      "prefill_tps": 1481.8465004135796,
+      "rss_gb": 9.18,
+      "pinned_gb": 0.0,
+      "locked_gb": 0.0,
+      "vram_mb": 10382,
+      "load_s": 2.3,
+      "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\n1 is not considered a prime number because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one divisor (itself), it does not meet this requirement and thus is not prime."
+    },
+    {
+      "decode_tps": 81.00184431074265,
+      "prefill_tps": 1515.9847136064643,
+      "rss_gb": 9.18,
+      "pinned_gb": 0.0,
+      "locked_gb": 0.0,
+      "vram_mb": 10382,
+      "load_s": 2.0,
+      "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered a prime number because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one divisor (itself), it does not meet this criterion. Additionally,"
+    }
+  ],
+  "unified_mem_all_gpu": [
+    {
+      "decode_tps": 12.953859378407978,
+      "prefill_tps": 233.91079482046732,
+      "rss_gb": 0.47,
+      "pinned_gb": 0.0,
+      "locked_gb": 0.0,
+      "vram_mb": 242,
+      "load_s": 9.2,
+      "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered prime because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one positive divisor (itself), it does not meet this criterion. Additionally, excluding"
+    },
+    {
+      "decode_tps": 14.697105515297054,
+      "prefill_tps": 268.8955219086892,
+      "rss_gb": 0.77,
+      "pinned_gb": 0.0,
+      "locked_gb": 0.0,
+      "vram_mb": 242,
+      "load_s": 7.0,
+      "check_output": " The first ten prime numbers are: 2, 3, 5, 7, 11, 13, 17, 19, 23, and 29.\n\nThe number 1 is not considered prime because, by definition, a prime number must have exactly two distinct positive divisors: 1 and itself. Since 1 only has one positive divisor (itself), it does not meet this criterion. Additionally, excluding"
+    }
+  ]
+}
