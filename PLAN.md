@@ -367,7 +367,60 @@ C6. **DONE. Docs updated, committed, pushed, and `BENCHMARK_RESULTS.md`
     even if speculation had engaged. The prompt set was the problem, not just the
     measurement.
 
-### Phase E -- the one outside project worth trying: expert caching (researched 2026-09-17)
+### Phase E -- expert caching: MEASURED AND DECLINED (2026-09-18)
+
+**Verdict: don't build it.** The prize is already on the shelf. This is the one
+phase that would have meant installing NVIDIA's CUDA 12.8+/13.x toolkit as root
+(Ubuntu ships 12.4; this card is sm_120), building llama.cpp from source,
+applying a draft PR and maintaining a custom binary in place of the vendored
+one -- so it was worth pricing before anyone started.
+
+An expert cache pays *only* in proportion to host-resident layers: a layer whose
+experts already live in VRAM has nothing to cache. That makes its ceiling
+measurable without building anything, which is what
+`experiments/expert_cache_ceiling.py` does -- fit each model as the app does,
+re-measure at `--n-cpu-moe` + 4 to get ms/token per host layer, then compute
+decode as if every host layer were free:
+
+| model | fitted split | decode | ms/layer | linear ceiling | max gain |
+|---|---|---|---|---|---|
+| q2_k (default) | 2 | 185.1 | 0.179 | 198.2 | +7% |
+| ud-q3_k_xl | 12 | 109.4 | 0.133 | 132.4 | +21% |
+| q4_k_m | 22 | 77.9 | 0.374 | *217.0* | *+178%* |
+
+The q2_k row validates the method: its computed ceiling of 198.2 tok/s matches
+the 198.1 measured directly at `--n-cpu-moe 0` in `context_at_split0.py`.
+
+**The q4_k_m row does not survive scrutiny and is not used.** 217 tok/s would be
+*faster* than Q2_K runs with every expert on the GPU, while moving 70% more
+weight per token -- physically impossible. Extrapolating a 4-layer measurement
+across 22 layers assumes a linearity the data cannot support. Scaling Q2_K's
+*measured* GPU-resident floor by file size (10.16 -> 17.3 GiB) gives a plausible
+Q4_K_M ceiling of **~116 tok/s**, and UD-Q3_K_XL ~156.
+
+So the realistic best case is Q4_K_M at ~116 tok/s with a *perfect* cache. Two
+facts kill it:
+
+1. **`AI2_BIG_MODEL=ud-q3_k_xl` already runs at 109.4 tok/s**, today, for free --
+   within 6% of that perfect-cache ceiling. And it is not a quality compromise:
+   against Q4_K_M it scores HumanEval **151/164 vs 150/164** (p=1.00) and GSM8K
+   **241/250 vs 239/250** (p=0.62). It is numerically *better* on both.
+2. **A real cache is not perfect.** PR #27861 reports +11.7% to +40%, which would
+   put Q4_K_M at 87-109 tok/s -- still slower than UD-Q3_K_XL is now.
+
+The PR's own open blockers would also hit this stack specifically (checked
+2026-09-18, still a draft, active that day):
+- **multi-token decode is currently disabled**, and n-gram speculation -- on by
+  default here -- is multi-token decode;
+- **VRAM use is not accounted for in `--fit`**, and launch-time VRAM fitting is
+  how this app chooses its split at all;
+- the cache is a per-process singleton, prefill bypasses it, and there are open
+  CUDA `mul_mat_id` bugs at `n_tokens > 1`.
+
+**Revisit if** the PR lands with speculation support, or if a future model makes
+the host-resident split large again. At two host layers there is nothing here.
+
+### The original Phase E research (2026-09-17), kept for the reasoning
 
 Survey of what else could serve this model on 12 GB, and where this stack stands:
 

@@ -45,7 +45,7 @@ launch path; details and sources in `config.BIG_MODELS` and `PLAN.md`.
 | `AI2_BIG_MODEL` | file | decode tok/s | vs Q4_K_M: KL divergence / HumanEval / GSM8K |
 |---|---|---|---|
 | `q4_k_m` | 17.3 GiB | 82 | reference: 150/164, 239/250 |
-| `ud-q3_k_xl` | 12.9 GiB | 115 | 0.044 / 151/164 / 241/250 |
+| `ud-q3_k_xl` | 12.9 GiB | 109-115 | 0.044 / 151/164 / 241/250 |
 | `iq3_xxs` | 11.4 GiB | ~113 | 0.076 / - / - |
 | `q2_k` (default) | 10.2 GiB | 185-197 | 0.098 / 147/164 / 240/250 |
 
