@@ -1,5 +1,132 @@
 # AI2 Local MoE Stack — Executive Summary
 
+*Whole-project summary as of 2026-09-18. The session-by-session detail that used
+to be the whole of this file begins at [Session 1](#session-1-2026-09-13-getting-it-to-run).*
+
+---
+
+## In one paragraph
+
+A 30-billion-parameter mixture-of-experts model (Qwen3-30B-A3B-Instruct-2507)
+runs entirely locally on a 12 GB consumer GPU at **~188 tokens/second**, driven
+from Python through llama.cpp's `llama-server` with no LM Studio app and no
+cloud. That is **4.1x** the speed the project started at and roughly **3x what
+published guides report** for this model class on this hardware. The accuracy
+cost is not measurable: on 414 graded problems the shipped quantization is
+statistically indistinguishable from the 17 GB reference. Along the way the
+machine turned out to have a genuine hardware fault, which was diagnosed,
+mitigated, and is now the main thing standing between this stack and being
+simply finished.
+
+## The numbers that matter
+
+| | at the start | now | |
+|---|---|---|---|
+| Decode speed | 47 tok/s | **188 tok/s** | 4.1x |
+| Context window | 4,096 tokens | **8,192** | 2x, and no longer a hard crash |
+| Model file | 17.3 GiB (Q4_K_M) | 10.2 GiB (Q2_K) | fits with room to spare |
+| Expert layers on GPU | 0 of 48 | 46 of 48 | the single biggest lever |
+| Longest clean run under load | 5.4 min (then a crash) | **45.1 min, 0 faults** | |
+
+**Accuracy, 414 graded problems** (HumanEval 164 + GSM8K 250, executed in a
+sandbox, not eyeballed):
+
+| model | HumanEval | GSM8K | vs Q4_K_M |
+|---|---|---|---|
+| `q4_k_m` (17.3 GiB reference) | 150/164 | 239/250 | — |
+| `ud-q3_k_xl` (12.9 GiB) | **151/164** | **241/250** | better on both (p=1.00, p=0.63) |
+| `q2_k` (10.2 GiB, **default**) | 147/164 | 240/250 | −3 / +1 (p=0.51, p=1.00) |
+
+Neither difference is statistically significant. `ud-q3_k_xl` is available as
+`AI2_BIG_MODEL=ud-q3_k_xl` at 109 tok/s for anyone who wants the larger file.
+
+## Where the 4.1x came from
+
+Almost none of it was clever. It was measuring the right thing and then taking
+the obvious win:
+
+1. **Fitting the MoE split to actual free VRAM** (`--n-cpu-moe`, chosen at launch
+   rather than hardcoded). The original config pinned every expert to CPU RAM and
+   left 10 of the card's 12 GB unused. This alone was 1.74x.
+2. **Quantization, chosen on measured accuracy rather than reputation** — Q2_K,
+   after HumanEval and GSM8K said the cost was unmeasurable.
+3. **Freeing VRAM the desktop was holding** (remote-desktop daemons, ~764 MiB),
+   which bought four more expert layers.
+4. **`-ub 1024`** (+32% prefill) and **n-gram speculative decoding** (+8% on code
+   edits, +22% on heavy edit workloads).
+5. **A 175 W power cap**, which cost ~5% and is the reason the machine finishes
+   runs at all.
+
+## What was measured and *rejected*
+
+The rejections are most of the work, and they are why the remaining settings can
+be trusted. Each of these was implemented, measured, and thrown away: a real
+0.5B draft model for speculation (0.96x at best), the "quick path" that answered
+short questions with the small model (the 30B corrected 22 of 24 answers and
+saved no time), KV-cache quantization (−10 tok/s), CPU-core pinning and thread
+tuning (0.99x — and an earlier "+3%" claim of mine was withdrawn when a longer
+run showed it was noise), a custom expert-placement scheme, UD-IQ2_XXS, and
+`--backend-sampling`.
+
+**Expert caching** — the one remaining big idea, and the subject of an active
+upstream PR — was priced and declined on 2026-09-18. Its ceiling is set by how
+many layers live in host RAM, and at two layers there is nothing to win; the
+realistic best case for the 17 GB model is ~116 tok/s, which `ud-q3_k_xl`
+already beats today at equal-or-better accuracy.
+
+## The hardware fault
+
+Four times the GPU dropped off the PCIe bus mid-run (`NVRM: Xid 79`). The
+investigation ruled out, by measurement: heat (39–55 °C under a custom loop),
+VRAM corruption, the PCIe riser, the PSU, malware, and this software stack. The
+decisive evidence was that **the same freeze happens in Windows under Minecraft**,
+and that **every fault occurred at the card's stock 250 W limit and none at
+175 W** — a 5.4-minute death uncapped against 45.1 clean minutes capped
+(308 replies, 473,088 tokens, zero faults).
+
+It is power delivery under load. The cap is a mitigation, not a repair: a
+`systemd` unit now applies it at boot, and the dashboard warns whenever the card
+is uncapped. **Inspecting both ends of the 12V-2x6 connector remains the one
+outstanding action that could actually fix it**, and is the owner's to do.
+
+## Claims this project made about itself that turned out to be wrong
+
+Worth listing, because several were load-bearing:
+
+- **"Native speculative decoding is only 1.02x."** Speculation was never running
+  — the draft model's vocabulary was incompatible and llama-server silently
+  served without it. The conclusion built on it ("not a productive place to
+  optimize") was wrong, and n-gram drafting is now on by default.
+- **"N-gram drafting is lossless — same tokens, checked."** It is not. One server,
+  one prompt, three times: speculation off gives three identical replies, on
+  gives three different ones. Checking a k-token batch changes floating-point
+  reduction order, so the model's own choice shifts on near-ties. It costs no
+  measurable accuracy, but the guarantee was withdrawn.
+- **The 4096-token context "silently truncates."** It does not — the server
+  refuses the request outright and generates nothing, and the app reported that
+  as "the model server failed", sending debugging to the GPU for a one-line
+  config problem.
+- **A regression of my own:** `gr.Chatbot(type="messages")` was found and fixed
+  in Session 1 (below, item 3). I re-introduced it on 2026-09-17 while adding
+  LaTeX rendering, and the app would not start. Reading this file first would
+  have prevented it.
+
+## State
+
+44 commits on `eagle3-draft-investigation`, open as PR #3. 43 experiment scripts
+with 39 saved result sets; every number above traces to one. Tests: 34 routing
+cases, 9 server-failure cases, all passing. Phases A–E of the current plan are
+complete or consciously declined; what remains needs physical access to the
+machine, not code.
+
+See [`PLAN.md`](PLAN.md) for current state and evidence, [`README.md`](README.md)
+to run it, [`SPEC_DECODING.md`](SPEC_DECODING.md) for the speculation work, and
+[`BENCHMARK_RESULTS.md`](BENCHMARK_RESULTS.md) for the original baseline.
+
+---
+
+## Session 1 (2026-09-13): getting it to run
+
 ## What this session did
 
 Took the AI2 codebase from "won't run" to a working, fully-local (no LM Studio)

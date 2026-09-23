@@ -1,0 +1,343 @@
+{
+ "q2_k": {
+  "n_cpu_moe": 1,
+  "rows": [
+   {
+    "prompt": "What is 17 times 24?",
+    "draft": "17 times 24 is 408.",
+    "1.1": {
+     "agree": 0,
+     "checked": 1,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 0,
+     "checked": 1,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "Who wrote Pride and Prejudice?",
+    "draft": "Pride and Prejudice was written by Jane Austen.",
+    "1.1": {
+     "agree": 0,
+     "checked": 1,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 0,
+     "checked": 1,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "What is the capital of Australia?",
+    "draft": "The capital of Australia is Canberra.",
+    "1.1": {
+     "agree": 7,
+     "checked": 7,
+     "corrected": false
+    },
+    "1.0": {
+     "agree": 7,
+     "checked": 7,
+     "corrected": false
+    }
+   },
+   {
+    "prompt": "When did World War II end?",
+    "draft": "World War II ended on July 14, 1945.",
+    "1.1": {
+     "agree": 5,
+     "checked": 6,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 5,
+     "checked": 6,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "Is a tomato a fruit? Yes or no.",
+    "draft": "Yes.",
+    "1.1": {
+     "agree": 2,
+     "checked": 2,
+     "corrected": false
+    },
+    "1.0": {
+     "agree": 2,
+     "checked": 2,
+     "corrected": false
+    }
+   },
+   {
+    "prompt": "What does HTTP stand for?",
+    "draft": "HTTP stands for Hypertext Transfer Protocol. It is a protocol used to transfer data over the internet. It is a set of rules that govern how data is sent and received between a client and a server. HTTP is used to create web pages, emails, and other types of data that can be shared on the internet.",
+    "1.1": {
+     "agree": 3,
+     "checked": 4,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 3,
+     "checked": 4,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "Where is Mount Kilimanjaro?",
+    "draft": "Mount Kilimanjaro is located in the western part of Tanzania, approximately 100 kilometers west of the city of Kilimanjaro. It is a mountain range that spans over 1,000 kilometers, with a total elevation of 1,200 meters. Mount Kilimanjaro is known for its stunning views of the surrounding landscape, including the Kila Nyeri National Park, which is home to the famous Kilimanjaro National",
+    "1.1": {
+     "agree": 8,
+     "checked": 9,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 8,
+     "checked": 9,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "Why is the sky blue?",
+    "draft": "The sky is blue because it is composed of a mix of red, green, and blue light. The red light is the primary color of the sky, and the green light is the secondary color. The blue light is the third color of the sky, and it is the color that is most visible to the naked eye. The blue light is also the color that is used to make the sky appear more blue than it does when it is not visible.",
+    "1.1": {
+     "agree": 2,
+     "checked": 3,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 2,
+     "checked": 3,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "What is the boiling point of water?",
+    "draft": "The boiling point of water is 100°C (212°F).",
+    "1.1": {
+     "agree": 5,
+     "checked": 6,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 6,
+     "checked": 7,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "Who painted the Mona Lisa?",
+    "draft": "The Mona Lisa was painted by Leonardo da Vinci in 1506.",
+    "1.1": {
+     "agree": 1,
+     "checked": 2,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 9,
+     "checked": 10,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "How many continents are there?",
+    "draft": "There are 5 continents in the world.",
+    "1.1": {
+     "agree": 2,
+     "checked": 3,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 2,
+     "checked": 3,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "What is the largest planet?",
+    "draft": "The largest planet is Jupiter.",
+    "1.1": {
+     "agree": 3,
+     "checked": 4,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 3,
+     "checked": 4,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "What does CPU stand for?",
+    "draft": "CPU stands for Central Processing Unit.",
+    "1.1": {
+     "agree": 3,
+     "checked": 4,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 3,
+     "checked": 4,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "Who discovered penicillin?",
+    "draft": "Penicillin was discovered by the American physician John Doe in 1928. He was a prominent physician who worked in the field of medicine and was known for his work on the treatment of infections. Penicillin is a widely used antibiotic that is effective against a variety of infections, including bacterial infections, viral infections, and skin infections.",
+    "1.1": {
+     "agree": 6,
+     "checked": 7,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 6,
+     "checked": 7,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "What is the square root of 144?",
+    "draft": "The square root of 144 is 12.",
+    "1.1": {
+     "agree": 9,
+     "checked": 10,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 9,
+     "checked": 10,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "How many days are in a leap year?",
+    "draft": "A leap year is a year that is divisible by 4, but not divisible by 100. If it is divisible by 400, it is also a leap year.",
+    "1.1": {
+     "agree": 3,
+     "checked": 4,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 3,
+     "checked": 4,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "What is the chemical symbol for gold?",
+    "draft": "The chemical symbol for gold is Au.",
+    "1.1": {
+     "agree": 6,
+     "checked": 7,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 6,
+     "checked": 7,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "Which ocean is the largest?",
+    "draft": "The largest ocean is the Pacific Ocean.",
+    "1.1": {
+     "agree": 3,
+     "checked": 4,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 5,
+     "checked": 6,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "What language is spoken in Brazil?",
+    "draft": "Brazil is spoken primarily in Portuguese.",
+    "1.1": {
+     "agree": 0,
+     "checked": 1,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 0,
+     "checked": 1,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "Who was the first person on the moon?",
+    "draft": "The first person to be on the moon was Apollo 11, which was launched in 1969.",
+    "1.1": {
+     "agree": 4,
+     "checked": 5,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 4,
+     "checked": 5,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "What is the freezing point of water in Fahrenheit?",
+    "draft": "The freezing point of water in Fahrenheit is 0 degrees Celsius.",
+    "1.1": {
+     "agree": 8,
+     "checked": 9,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 8,
+     "checked": 9,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "How many legs does a spider have?",
+    "draft": "A spider has four legs.",
+    "1.1": {
+     "agree": 0,
+     "checked": 1,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 0,
+     "checked": 1,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "What year did the Titanic sink?",
+    "draft": "The Titanic sank on April 15, 1912, in Southampton, England.",
+    "1.1": {
+     "agree": 3,
+     "checked": 4,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 3,
+     "checked": 4,
+     "corrected": true
+    }
+   },
+   {
+    "prompt": "What is the speed of light?",
+    "draft": "The speed of light is approximately 299,792,458 meters per second (m/s).",
+    "1.1": {
+     "agree": 4,
+     "checked": 5,
+     "corrected": true
+    },
+    "1.0": {
+     "agree": 4,
+     "checked": 5,
+     "corrected": true
+    }
+   }
+  ]
+ }
+}

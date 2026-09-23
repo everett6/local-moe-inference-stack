@@ -8,8 +8,8 @@ decoding so every accept/reject decision is visible -- that's exactly the
 signal the online draft trainer needs.
 
 Why the big model goes through `llama-server` instead of llama-cpp-python
-directly: `-ot` / `--override-tensor` (the flag that actually pins MoE expert
-tensors to CPU RAM while keeping attention on GPU) is a compiled-binary
+directly: `--n-cpu-moe` (the flag that keeps some layers' MoE expert tensors in
+CPU RAM while everything else stays on the GPU) is a compiled-binary
 CLI/server flag. It isn't reliably exposed through llama-cpp-python's high
 level API across versions. Using the real llama.cpp server gets you the
 actual, working feature instead of a slower, buggier Python reimplementation.
@@ -22,12 +22,15 @@ per-token probabilities) has changed across llama.cpp releases. If
 your build and adjust the field names to match.
 """
 import atexit
+import json
 import os
+import re
+import socket
 import subprocess
 import threading
 import time
 from dataclasses import dataclass
-from typing import Callable, List, Optional
+from typing import Callable, Iterator, List, Optional
 
 import requests
 from llama_cpp import Llama
@@ -35,54 +38,265 @@ from llama_cpp import Llama
 from config import Paths, Runtime
 
 
+# ~700 tokens: longer than llama-server's default 512-token ubatch, so the warm-up
+# runs full-size cuBLAS prompt batches, same as a long real prompt would.
+_WARMUP_PROMPT = " ".join(f"item {i}: the quick brown fox jumps over the lazy dog." for i in range(64))
+
+
+# What llama-server logs when CUDA doesn't come up. It then keeps going on the CPU
+# ("--gpu-layers option will be ignored"): every split "fits", so the launch
+# fitting would report success and the app would serve at a small fraction of its
+# speed with no error anywhere. Seen after the GPU dropped off the PCIe bus
+# (kernel: "NVRM: Xid 79, GPU has fallen off the bus").
+_NO_GPU_MARKERS = ("failed to initialize CUDA", "no usable GPU found")
+
+
+class ServerUnavailable(RuntimeError):
+    """The big-model server can't serve: no usable GPU, or it died mid-request."""
+
+
+class PromptTooLong(RuntimeError):
+    """The conversation does not fit in the server's context window.
+
+    Kept apart from ServerUnavailable because it is the opposite situation: the
+    server is healthy and rejected the request on purpose. llama-server answers
+    400 with "request (N tokens) exceeds the available context size (M tokens)",
+    and without this the app caught it as a RequestException and told the user
+    the model server had failed -- which sent anyone debugging it to the GPU.
+    """
+
+
+
+def _gpu_free_mb() -> Optional[int]:
+    """Free VRAM on GPU 0, or None if nvidia-smi isn't available (check skipped)."""
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return int(out.stdout.strip().splitlines()[0])
+    except Exception:
+        return None
+
+
+def _gpu_power_limit_w() -> Optional[float]:
+    """GPU 0's enforced power limit in watts, or None if it can't be read."""
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=power.limit", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return float(out.stdout.strip().splitlines()[0])
+    except Exception:
+        return None
+
+
+def check_gpu_power_limit(rt: Runtime):
+    """Warn (or refuse) if the GPU is running at a power limit that has crashed it.
+
+    This card dropped off the PCIe bus four times on 2026-09-17 ("NVRM: Xid 79"),
+    every time at the stock 250 W limit, twice inside 10 minutes of load. A
+    20-minute soak at `nvidia-smi -pl 175` ran clean, as did the runs after it.
+    The limit resets to stock on every reboot and nvidia-smi needs root, so the app
+    can't set it -- but it can refuse to be the thing that kills the GPU again.
+
+    Runtime.max_power_limit_w = 0 disables the check.
+    """
+    if not rt.max_power_limit_w:
+        return
+    limit = _gpu_power_limit_w()
+    if limit is None or limit <= rt.max_power_limit_w:
+        return
+    msg = (f"GPU power limit is {limit:.0f} W, above the {rt.max_power_limit_w:.0f} W this machine has "
+           f"been stable at. Every 'GPU has fallen off the bus' (Xid 79) here happened at the stock "
+           f"limit. Run:  sudo nvidia-smi -pl {rt.max_power_limit_w:.0f}   (it resets on every reboot; "
+           f"see PLAN.md for the boot service). Set Runtime.max_power_limit_w = 0 to ignore this.")
+    if rt.require_power_cap:
+        raise ServerUnavailable(msg)
+    print(f"[BigModelServer] WARNING: {msg}", flush=True)
+
+
+def _port_holder(port: int) -> str:
+    """Best-effort description of whatever is listening on `port`."""
+    try:
+        out = subprocess.run(["ss", "-ltnp", f"sport = :{port}"],
+                             capture_output=True, text=True, timeout=5).stdout
+        for line in out.splitlines()[1:]:
+            if f":{port}" in line:
+                return line.split("users:", 1)[-1].strip() or line.strip()
+    except Exception:
+        pass
+    return "unknown process"
+
+
+def _check_port_free(port: int) -> None:
+    """Fail immediately if the port is taken, instead of blaming VRAM for it.
+
+    A previous run's llama-server outlives its parent if the app is killed with
+    a signal (atexit does not run on SIGTERM). The next start then found port
+    8090 busy, read every launch as 'load_failed', and walked all 49 splits --
+    about two minutes -- before reporting a VRAM problem that did not exist.
+    The real cause was in the error's last sentence all along.
+    """
+    with socket.socket() as sock:
+        sock.settimeout(1)
+        if sock.connect_ex(("127.0.0.1", port)) != 0:
+            return
+    raise ServerUnavailable(
+        f"port {port} is already in use by {_port_holder(port)} -- most likely a "
+        "llama-server left behind by an earlier run that was killed with a signal. "
+        f"Stop it first (`pkill -f 'llama-server.*--port {port}'`), then start again. "
+        "Nothing was launched, so this is not a VRAM or model problem."
+    )
+
+
 class BigModelServer:
     """Owns the llama.cpp server subprocess for the 30B model."""
+
+    N_LAYERS = 48  # Qwen3-30B-A3B; --n-cpu-moe at this value = every expert on CPU
 
     def __init__(self, paths: Paths, rt: Runtime, port: int = 8090):
         self.port = port
         self.base_url = f"http://127.0.0.1:{port}"
-        cmd = [
+        self.rt = rt
+        self.env = dict(os.environ)
+        if paths.llama_server_ld_library_path:
+            existing = self.env.get("LD_LIBRARY_PATH", "")
+            self.env["LD_LIBRARY_PATH"] = (
+                f"{paths.llama_server_ld_library_path}:{existing}" if existing else paths.llama_server_ld_library_path
+            )
+        self.base_cmd = [
             paths.llama_server_bin,
             "-m", paths.big_model_gguf,
             "-c", str(rt.n_ctx),
             "-t", str(rt.threads),
             "--port", str(port),
             "-ngl", "999",
-            "-ot", f"{rt.moe_cpu_tensor_regex}=CPU",
             "-fa", "on",
+            "-np", str(rt.server_slots),
+            "-ub", str(rt.ubatch),
+            "-b", str(rt.batch),
+            *rt.spec_args,
         ]
-        env = dict(os.environ)
-        if paths.llama_server_ld_library_path:
-            existing = env.get("LD_LIBRARY_PATH", "")
-            env["LD_LIBRARY_PATH"] = (
-                f"{paths.llama_server_ld_library_path}:{existing}" if existing else paths.llama_server_ld_library_path
-            )
         # stdout/stderr MUST go to a real file, not subprocess.PIPE: llama-server logs
         # every request, and nothing here was ever draining a PIPE's OS buffer (64KB).
         # Once that filled, llama-server's write() call blocked and the whole server
         # deadlocked on the very first real request -- silently, since /health still
         # answered from a thread that had already logged its own startup line.
         self.log_path = os.path.join(os.path.dirname(paths.mismatch_log_path) or ".", "llama_server.log")
-        self._log_file = open(self.log_path, "w")
-        self.proc = subprocess.Popen(cmd, stdout=self._log_file, stderr=subprocess.STDOUT, text=True, env=env)
+        self._log_file = None
+        self.proc = None
         atexit.register(self.stop)
-        self._wait_for_ready()
+        _check_port_free(port)
+        check_gpu_power_limit(rt)
+        self.n_cpu_moe = self._launch_best_fit()
 
-    def _wait_for_ready(self, timeout: float = 120.0):
+    def _launch_best_fit(self) -> int:
+        """Start llama-server with the most experts in VRAM that currently fit.
+
+        --n-cpu-moe, not -ot: the regex form pins every layer's experts to CPU and
+        left 10 GB of the card unused. But how many layers fit depends on what else
+        holds VRAM *right now* -- this process's own draft model, a browser -- so it
+        is found at launch rather than hardcoded. See Runtime.n_cpu_moe.
+        """
+        tried = []
+        n = max(0, min(self.rt.n_cpu_moe, self.N_LAYERS))
+        while True:
+            outcome = self._try_launch(n)
+            tried.append(f"{n}:{outcome}")
+            if outcome == "ok":
+                # flush: under a process manager stdout is a pipe and fully
+                # buffered, so otherwise this never shows up in the app's log.
+                print(f"[BigModelServer] --n-cpu-moe {n} "
+                      f"({self.N_LAYERS - n}/{self.N_LAYERS} layers' experts in VRAM)", flush=True)
+                return n
+            if outcome == "no_headroom" and n >= self.N_LAYERS:
+                # Nothing left to move off the GPU; a running server with thin
+                # headroom beats no server.
+                print(f"[BigModelServer] --n-cpu-moe {n}, below requested VRAM headroom", flush=True)
+                return n
+            self.stop()
+            if n >= self.N_LAYERS:
+                raise RuntimeError(
+                    f"llama-server failed to load even with every expert on CPU "
+                    f"(tried {', '.join(tried)}) -- check {self.log_path}. With nothing "
+                    "left to offload, this is not a VRAM-split problem: look for a bad "
+                    f"model path, missing CUDA libs, or port {self.port} already in use."
+                )
+            n = min(n + self.rt.n_cpu_moe_step, self.N_LAYERS)
+
+    def _try_launch(self, n_cpu_moe: int) -> str:
+        """Returns 'ok', 'load_failed' (process exited during load, i.e. OOM), or
+        'no_headroom' (running, but left less free VRAM than rt.vram_headroom_mb)."""
+        if self._log_file is not None:
+            self._log_file.close()
+        self._log_file = open(self.log_path, "w")
+        cmd = self.base_cmd + ["--n-cpu-moe", str(n_cpu_moe)]
+        self.proc = subprocess.Popen(cmd, stdout=self._log_file, stderr=subprocess.STDOUT,
+                                     text=True, env=self.env)
+        if not self._wait_for_ready():
+            return "load_failed"
+        # Healthy is not the same as runnable. CUDA allocates the cuBLAS workspace
+        # lazily, on the first cuBLAS matmul -- so a split can load, answer /health,
+        # and then abort with "CUDA error: out of memory" on the first real prompt.
+        # Seen twice in runtime_knob_sweep.py. The warm-up has to take the same
+        # kernel path a real prompt does: a 2-token prompt passed and the next
+        # ~15-token one still crashed, because tiny batches use different (non-
+        # cuBLAS) kernels. So warm up with a prompt longer than one ubatch.
+        try:
+            r = requests.post(f"{self.base_url}/completion",
+                              json={"prompt": _WARMUP_PROMPT, "n_predict": 8, "cache_prompt": False},
+                              timeout=300)
+            r.raise_for_status()
+        except Exception:
+            return "load_failed"
+        if self.proc.poll() is not None:
+            return "load_failed"
+        free = _gpu_free_mb()
+        if free is not None and free < self.rt.vram_headroom_mb:
+            return "no_headroom"
+        return "ok"
+
+    def _log_tail(self, n: int = 12) -> str:
+        try:
+            with open(self.log_path, errors="replace") as f:
+                return "".join(f.readlines()[-n:])
+        except OSError:
+            return ""
+
+    def _check_gpu_came_up(self):
+        """Raise ServerUnavailable if llama-server says CUDA didn't initialize.
+        Not a split problem, so retrying with more layers on the CPU can't help."""
+        try:
+            with open(self.log_path, errors="replace") as f:
+                head = f.read(20000)
+        except OSError:
+            return
+        if any(m in head for m in _NO_GPU_MARKERS):
+            self.stop()
+            raise ServerUnavailable(
+                "llama-server found no usable GPU and would run on the CPU only "
+                f"(see {self.log_path}). Check `nvidia-smi`. If `journalctl -k` shows "
+                "'GPU has fallen off the bus' (Xid 79), the GPU needs a reboot, ideally a "
+                "full power-off, before it can be used again."
+            )
+
+    def _wait_for_ready(self, timeout: float = 300.0) -> bool:
         start = time.time()
         while time.time() - start < timeout:
+            self._check_gpu_came_up()
+            # llama-server exits on a failed allocation instead of hanging, so a
+            # dead process means "doesn't fit" -- no need to sit out the timeout.
+            if self.proc.poll() is not None:
+                return False
             try:
                 r = requests.get(f"{self.base_url}/health", timeout=2)
                 if r.status_code == 200:
-                    return
+                    return True
             except Exception:
                 pass
             time.sleep(1.0)
-        raise RuntimeError(
-            f"llama-server did not become healthy in time -- check {self.log_path} "
-            "for the real error, most likely "
-            "a bad -ot regex or not enough VRAM for even the pinned tensors."
-        )
+        return False
 
     def greedy_tokens_with_ids(self, tokens: List[int], n_predict: int) -> List[int]:
         """Have the big model greedily generate n_predict tokens from `tokens` and
@@ -103,8 +317,8 @@ class BigModelServer:
         """
         r = requests.post(
             f"{self.base_url}/completion",
-            json={"prompt": tokens, "n_predict": n_predict, "temperature": 0.0, "repeat_penalty": 1.1,
-                  "cache_prompt": True, "n_probs": 1},
+            json={"prompt": tokens, "n_predict": n_predict, "temperature": 0.0,
+                  "repeat_penalty": self.rt.repeat_penalty, "cache_prompt": True, "n_probs": 1},
             timeout=120,
         )
         r.raise_for_status()
@@ -114,17 +328,102 @@ class BigModelServer:
     def complete_greedy(self, tokens: List[int], n_predict: int) -> dict:
         r = requests.post(
             f"{self.base_url}/completion",
-            json={"prompt": tokens, "n_predict": n_predict, "temperature": 0.0, "repeat_penalty": 1.1,
-                  "cache_prompt": True},
+            json={"prompt": tokens, "n_predict": n_predict, "temperature": 0.0,
+                  "repeat_penalty": self.rt.repeat_penalty, "cache_prompt": True},
             timeout=120,
         )
         r.raise_for_status()
         return r.json()
 
+    def apply_template(self, messages: List[dict]) -> str:
+        """Render a conversation with this model's own chat template, ready for
+        the assistant's reply -- the exact prompt /v1/chat/completions would use."""
+        r = requests.post(f"{self.base_url}/apply-template", json={"messages": messages}, timeout=30)
+        r.raise_for_status()
+        return r.json()["prompt"]
+
+    def stream_chat(self, messages: List[dict], max_tokens: int) -> Iterator[dict]:
+        """Stream a chat reply from the big model, formatted with its chat template.
+
+        Yields {"delta": str} as text arrives, then one final {"timings": dict}.
+
+        Why this exists alongside complete_greedy: that method sends raw token ids
+        to /completion, which applies NO chat template. Qwen3-30B-A3B-Instruct is a
+        chat model; handed bare text it continues the text instead of answering it.
+        /v1/chat/completions applies the model's own template and takes the whole
+        conversation, so earlier turns are visible to the model too. Streaming
+        means the first words appear after prefill, not after the whole reply.
+
+        Sampling matches complete_greedy (greedy, Runtime.repeat_penalty), so this
+        changes the formatting and delivery of replies, not how tokens are chosen.
+        """
+        timings = None
+        try:
+            r = requests.post(
+                f"{self.base_url}/v1/chat/completions",
+                json={"messages": messages, "max_tokens": max_tokens, "stream": True,
+                      "temperature": 0.0, "repeat_penalty": self.rt.repeat_penalty, "cache_prompt": True,
+                      "timings_per_token": False},
+                stream=True,
+                timeout=600,
+            )
+            if r.status_code >= 400:
+                # Read the body before raising: llama-server explains exactly why,
+                # and a 400 here is almost always a prompt longer than -c.
+                body = r.text[:800]
+                m = re.search(r"request \((\d+) tokens\) exceeds the available "
+                              r"context size \((\d+) tokens\)", body)
+                if m:
+                    raise PromptTooLong(
+                        f"this conversation is {int(m.group(1)):,} tokens, and the context "
+                        f"window is {int(m.group(2)):,} (Runtime.n_ctx). Nothing was generated. "
+                        "Start a new conversation, shorten the prompt, or raise n_ctx -- which "
+                        "costs VRAM, and therefore expert layers: see "
+                        "experiments/context_at_split0.py."
+                    )
+            r.raise_for_status()
+            # Decode as UTF-8 explicitly. llama-server's text/event-stream response
+            # declares no charset, so requests falls back to ISO-8859-1 and every
+            # non-ASCII character arrives garbled ("—" became "â\x80\x94"). Splitting
+            # the raw bytes on newlines first is safe: UTF-8 never uses 0x0A inside
+            # a multi-byte character.
+            for raw_bytes in r.iter_lines():
+                raw = raw_bytes.decode("utf-8")
+                if not raw.startswith("data: "):
+                    continue
+                payload = raw[len("data: "):]
+                if payload == "[DONE]":
+                    break
+                chunk = json.loads(payload)
+                if chunk.get("timings"):
+                    timings = chunk["timings"]
+                for choice in chunk.get("choices", []):
+                    text = (choice.get("delta") or {}).get("content")
+                    if text:
+                        yield {"delta": text}
+        except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError) as e:
+            # The server went away mid-reply. Seen when the GPU dropped off the PCIe
+            # bus under sustained load: the process died and the stream just ended
+            # ("Response ended prematurely"), which surfaced as a bare traceback.
+            alive = self.proc is not None and self.proc.poll() is None
+            raise ServerUnavailable(
+                f"llama-server {'stopped responding' if alive else 'exited'} during the reply "
+                f"({type(e).__name__}). Last lines of {self.log_path}:\n{self._log_tail()}"
+            ) from e
+        yield {"timings": timings or {}}
+
     def stop(self):
-        if self.proc.poll() is None:
+        if self.proc is not None and self.proc.poll() is None:
             self.proc.terminate()
-        self._log_file.close()
+            try:
+                # Wait for it to actually release VRAM, or the next fallback launch
+                # sees the old process's allocation and fails for no real reason.
+                self.proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(timeout=10)
+        if self._log_file is not None and not self._log_file.closed:
+            self._log_file.close()
 
 
 class LocalMoEEngine:
@@ -138,7 +437,10 @@ class LocalMoEEngine:
         self.draft = Llama(
             model_path=paths.draft_model_gguf,
             n_ctx=rt.n_ctx,
-            n_gpu_layers=-1,  # draft model is tiny, load it fully on GPU
+            # Requests full GPU offload, but the installed llama-cpp-python is a
+            # CPU-only build (llama_cpp.llama_supports_gpu_offload() is False),
+            # so this is ignored: the draft runs on the CPU and uses no VRAM.
+            n_gpu_layers=-1,
             verbose=False,
         )
         self.big = BigModelServer(paths, rt)
@@ -216,16 +518,34 @@ class LocalMoEEngine:
 
     def generate_fast(self, prompt_tokens: List[int], max_tokens: int = 256) -> List[int]:
         """Fast path for 'quick'-bucket prompts: the draft model answers entirely on
-        its own, no big model involved at all. Fully GPU-resident and not subject to
+        its own, no big model involved at all. (It runs on the CPU -- llama-cpp-python
+        here has no GPU support -- so its latency grows with conversation length;
+        app.py caps that with Runtime.quick_max_prompt_tokens.) Not subject to
         the big model's CPU-bound MoE expert bottleneck -- this is where the draft
         model's own speed is actually worth something, unlike speculative decoding
         (see generate()'s docstring / BENCHMARK_RESULTS.md for why that path doesn't
         pay off on this hardware). Pair with verify_fast_answer() to catch and
         correct wrong answers and keep training signal flowing."""
-        text = self.draft.detokenize(prompt_tokens).decode("utf-8", "ignore")
-        out = self.draft(prompt=text, max_tokens=max_tokens, temperature=0.0)
+        # Token ids go straight in. The old detokenize -> text -> re-tokenize round
+        # trip dropped special tokens (detokenize omits <|im_start|> etc. by
+        # default), so a chat-templated prompt arrived as bare text.
+        out = self.draft(prompt=list(prompt_tokens), max_tokens=max_tokens, temperature=0.0)
         completion_text = out["choices"][0]["text"]
         return self.draft.tokenize(completion_text.encode("utf-8"), add_bos=False)
+
+    def chat_prompt_tokens(self, messages: List[dict]) -> List[int]:
+        """The conversation as token ids, formatted with the 30B's chat template.
+
+        Both sides of the quick path use exactly these ids: the draft answers from
+        them and verify_fast_answer replays that answer against the 30B from them.
+        So the draft learns to predict what the 30B says in a real chat, and the
+        check compares like with like. The template is the 30B's, rendered by its
+        own server, not the draft's: the draft's (Qwen2.5) template injects a
+        default system prompt the 30B never sees. Qwen2.5 and Qwen3 share these
+        token ids, including <|im_start|>/<|im_end|>.
+        """
+        text = self.big.apply_template(messages)
+        return self.draft.tokenize(text.encode("utf-8"), add_bos=False, special=True)
 
     def verify_fast_answer(self, prompt_tokens: List[int], draft_tokens: List[int], max_tokens: int):
         """Background quality check for a fast-path answer already shown to the
@@ -240,6 +560,13 @@ class LocalMoEEngine:
         onward replaced by the big model's own (real, not speculative) completion.
         """
         context = list(prompt_tokens)
+        if not draft_tokens:
+            # Nothing to check, so the loop below would return "confirmed, 0/0" and
+            # the app would show a blank reply as verified. Seen with raw
+            # (un-templated) prompts in experiments/quick_path_template.py. The 30B
+            # answers instead.
+            tail = self.big.complete_greedy(context, max_tokens)
+            return 0, 0, self.draft.tokenize(tail.get("content", "").encode("utf-8"), add_bos=False)
         agree = 0
         checked = 0
         i = 0

@@ -1,0 +1,26 @@
+{
+  "model": "q2_k",
+  "started": "2026-09-18 16:06:56",
+  "duration_target_min": 45.0,
+  "replay_start": null,
+  "n_cpu_moe": 2,
+  "outcome": "completed",
+  "xid": [],
+  "minutes": 45.1,
+  "replies": 308,
+  "tokens": 473088,
+  "replay_end": null,
+  "samples": 1336,
+  "failed_samples": 0,
+  "power_w_max": 182.31,
+  "temp_c_max": 49.0,
+  "throttle_reasons_seen": [
+    "0x0000000000000000",
+    "0x0000000000000004"
+  ],
+  "pcie_links_seen": [
+    "gen1 x16",
+    "gen5 x16"
+  ],
+  "passed": true
+}

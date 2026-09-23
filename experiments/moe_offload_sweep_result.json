@@ -1,0 +1,72 @@
+[
+  {
+    "n_cpu_moe": 48,
+    "tok_s": 47.11,
+    "tokens": 664,
+    "elapsed_s": 14.1,
+    "vram_used_mb": 1750,
+    "log": "/home/everett/AI2/state/moe_ncmoe48.log"
+  },
+  {
+    "n_cpu_moe": 44,
+    "tok_s": 49.79,
+    "tokens": 663,
+    "elapsed_s": 13.32,
+    "vram_used_mb": 3244,
+    "log": "/home/everett/AI2/state/moe_ncmoe44.log"
+  },
+  {
+    "n_cpu_moe": 40,
+    "tok_s": 53.39,
+    "tokens": 663,
+    "elapsed_s": 12.42,
+    "vram_used_mb": 4688,
+    "log": "/home/everett/AI2/state/moe_ncmoe40.log"
+  },
+  {
+    "n_cpu_moe": 36,
+    "tok_s": 57.98,
+    "tokens": 666,
+    "elapsed_s": 11.49,
+    "vram_used_mb": 6034,
+    "log": "/home/everett/AI2/state/moe_ncmoe36.log"
+  },
+  {
+    "n_cpu_moe": 32,
+    "tok_s": 61.32,
+    "tokens": 663,
+    "elapsed_s": 10.81,
+    "vram_used_mb": 7428,
+    "log": "/home/everett/AI2/state/moe_ncmoe32.log"
+  },
+  {
+    "n_cpu_moe": 28,
+    "tok_s": 67.36,
+    "tokens": 666,
+    "elapsed_s": 9.89,
+    "vram_used_mb": 8774,
+    "log": "/home/everett/AI2/state/moe_ncmoe28.log"
+  },
+  {
+    "n_cpu_moe": 24,
+    "tok_s": 74.04,
+    "tokens": 666,
+    "elapsed_s": 9.0,
+    "vram_used_mb": 10120,
+    "log": "/home/everett/AI2/state/moe_ncmoe24.log"
+  },
+  {
+    "n_cpu_moe": 20,
+    "tok_s": 81.74,
+    "tokens": 664,
+    "elapsed_s": 8.12,
+    "vram_used_mb": 11514,
+    "log": "/home/everett/AI2/state/moe_ncmoe20.log"
+  },
+  {
+    "n_cpu_moe": 16,
+    "error": "failed to load",
+    "detail": "0.01.015.916 E cmn  common_init_: failed to load model '/home/everett/.lmstudio/models/lmstudio-community/Qwen3-30B-A3B-Instruct-2507-GGUF/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf' | 0.01.015.921 E srv    load_model: failed to load model, '/home/everett/.lmstudio/models/lmstudio-community/Qwen3-30B-A3B-Instruct-2507-GGUF/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf': error loading model: unable to alloc",
+    "log": "/home/everett/AI2/state/moe_ncmoe16.log"
+  }
+]

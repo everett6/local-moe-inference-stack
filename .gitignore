@@ -18,3 +18,14 @@ __pycache__/
 
 # Auto-refresh cycle's scratch output
 models/refreshed/
+
+# Captured target outputs for draft self-distillation -- regenerable, and large
+data/draft_train_capture.jsonl
+
+# Locally built llama-server variants (copies of LM Studio's backend with a swapped CPU library)
+build/
+
+# llama-perplexity reference logits (1.5 GB), regenerable
+data/quality/*.kld
+state/gpu_watchdog.csv*
+state/gpu_watchdog.log

@@ -1,0 +1,48 @@
+[
+  {
+    "trainer_device": "cuda",
+    "free_before_mb": 11241,
+    "free_after_trainer_mb": 10079,
+    "startup_s": 15.8,
+    "n_cpu_moe": 28,
+    "free_after_engine_mb": 1048,
+    "decode_tps": 60.94,
+    "template_compare": {
+      "prompt": "What is 17 times 24?",
+      "raw_completion": " Also, what are the factors of 408? What two numbers multiply to give 408? How many times does 24 go into 536? What is 24 percent of 17? What is 17 over 24 as a decimal?\n\nLet's address each of your questions step by step.\n\n1. **What is 17 times 24?**\n   To find \\( 17 \\times ",
+      "raw_tokens": 96,
+      "chat_completion": "To calculate $ 17 \\times 24 $, you can break it down using the distributive property:\n\n$$\n17 \\times 24 = 17 \\times (20 + 4) = (17 \\times 20) + (17 \\times 4)\n$$\n\nNow calculate each part:\n\n- $ 17 \\times 20 = 340 $\n- $ 17 \\times "
+    },
+    "train_step_s": 2.0
+  },
+  {
+    "trainer_device": "cpu",
+    "free_before_mb": 11100,
+    "free_after_trainer_mb": 11100,
+    "startup_s": 7.3,
+    "n_cpu_moe": 24,
+    "free_after_engine_mb": 1141,
+    "decode_tps": 71.55,
+    "train_step_s": 9.5
+  },
+  {
+    "trainer_device": "cuda",
+    "free_before_mb": 11127,
+    "free_after_trainer_mb": 9955,
+    "startup_s": 11.7,
+    "n_cpu_moe": 28,
+    "free_after_engine_mb": 1324,
+    "decode_tps": 64.33,
+    "train_step_s": 2.5
+  },
+  {
+    "trainer_device": "cpu",
+    "free_before_mb": 11279,
+    "free_after_trainer_mb": 11279,
+    "startup_s": 7.2,
+    "n_cpu_moe": 24,
+    "free_after_engine_mb": 1312,
+    "decode_tps": 70.23,
+    "train_step_s": 9.5
+  }
+]

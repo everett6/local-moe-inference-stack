@@ -1,0 +1,184 @@
+[
+  {
+    "arm": "baseline",
+    "workload": "code",
+    "k": null,
+    "p_min": null,
+    "tok_s": 66.47,
+    "tokens": 768,
+    "elapsed_s": 11.55,
+    "acceptance": null,
+    "log": "/home/everett/AI2/state/wpmin_code_baseline.log"
+  },
+  {
+    "arm": "k1_p0.0",
+    "workload": "code",
+    "k": 1,
+    "p_min": "0.0",
+    "tok_s": 64.65,
+    "tokens": 768,
+    "elapsed_s": 11.88,
+    "acceptance": {
+      "rate": 0.7563218390804598,
+      "accepted": 329,
+      "generated": 435,
+      "slots_logged": 4
+    },
+    "log": "/home/everett/AI2/state/wpmin_code_k1_p0.0.log"
+  },
+  {
+    "arm": "k1_p0.6",
+    "workload": "code",
+    "k": 1,
+    "p_min": "0.6",
+    "tok_s": 61.33,
+    "tokens": 768,
+    "elapsed_s": 12.52,
+    "acceptance": {
+      "rate": 0.8858858858858859,
+      "accepted": 295,
+      "generated": 333,
+      "slots_logged": 4
+    },
+    "log": "/home/everett/AI2/state/wpmin_code_k1_p0.6.log"
+  },
+  {
+    "arm": "k2_p0.6",
+    "workload": "code",
+    "k": 2,
+    "p_min": "0.6",
+    "tok_s": 63.47,
+    "tokens": 768,
+    "elapsed_s": 12.1,
+    "acceptance": {
+      "rate": 0.8177874186550976,
+      "accepted": 377,
+      "generated": 461,
+      "slots_logged": 4
+    },
+    "log": "/home/everett/AI2/state/wpmin_code_k2_p0.6.log"
+  },
+  {
+    "arm": "k2_p0.8",
+    "workload": "code",
+    "k": 2,
+    "p_min": "0.8",
+    "tok_s": 65.69,
+    "tokens": 768,
+    "elapsed_s": 11.69,
+    "acceptance": {
+      "rate": 0.9097938144329897,
+      "accepted": 353,
+      "generated": 388,
+      "slots_logged": 4
+    },
+    "log": "/home/everett/AI2/state/wpmin_code_k2_p0.8.log"
+  },
+  {
+    "arm": "k4_p0.8",
+    "workload": "code",
+    "k": 4,
+    "p_min": "0.8",
+    "tok_s": 70.55,
+    "tokens": 768,
+    "elapsed_s": 10.89,
+    "acceptance": {
+      "rate": 0.8773784355179705,
+      "accepted": 415,
+      "generated": 473,
+      "slots_logged": 4
+    },
+    "log": "/home/everett/AI2/state/wpmin_code_k4_p0.8.log"
+  },
+  {
+    "arm": "baseline",
+    "workload": "prose",
+    "k": null,
+    "p_min": null,
+    "tok_s": 69.79,
+    "tokens": 666,
+    "elapsed_s": 9.54,
+    "acceptance": null,
+    "log": "/home/everett/AI2/state/wpmin_prose_baseline.log"
+  },
+  {
+    "arm": "k1_p0.0",
+    "workload": "prose",
+    "k": 1,
+    "p_min": "0.0",
+    "tok_s": 58.33,
+    "tokens": 664,
+    "elapsed_s": 11.38,
+    "acceptance": {
+      "rate": 0.5793269230769231,
+      "accepted": 241,
+      "generated": 416,
+      "slots_logged": 4
+    },
+    "log": "/home/everett/AI2/state/wpmin_prose_k1_p0.0.log"
+  },
+  {
+    "arm": "k1_p0.6",
+    "workload": "prose",
+    "k": 1,
+    "p_min": "0.6",
+    "tok_s": 55.71,
+    "tokens": 654,
+    "elapsed_s": 11.74,
+    "acceptance": {
+      "rate": 0.7333333333333333,
+      "accepted": 187,
+      "generated": 255,
+      "slots_logged": 4
+    },
+    "log": "/home/everett/AI2/state/wpmin_prose_k1_p0.6.log"
+  },
+  {
+    "arm": "k2_p0.6",
+    "workload": "prose",
+    "k": 2,
+    "p_min": "0.6",
+    "tok_s": 54.85,
+    "tokens": 649,
+    "elapsed_s": 11.83,
+    "acceptance": {
+      "rate": 0.718266253869969,
+      "accepted": 232,
+      "generated": 323,
+      "slots_logged": 4
+    },
+    "log": "/home/everett/AI2/state/wpmin_prose_k2_p0.6.log"
+  },
+  {
+    "arm": "k2_p0.8",
+    "workload": "prose",
+    "k": 2,
+    "p_min": "0.8",
+    "tok_s": 57.78,
+    "tokens": 656,
+    "elapsed_s": 11.35,
+    "acceptance": {
+      "rate": 0.8521739130434782,
+      "accepted": 196,
+      "generated": 230,
+      "slots_logged": 4
+    },
+    "log": "/home/everett/AI2/state/wpmin_prose_k2_p0.8.log"
+  },
+  {
+    "arm": "k4_p0.8",
+    "workload": "prose",
+    "k": 4,
+    "p_min": "0.8",
+    "tok_s": 59.51,
+    "tokens": 664,
+    "elapsed_s": 11.16,
+    "acceptance": {
+      "rate": 0.8346774193548387,
+      "accepted": 207,
+      "generated": 248,
+      "slots_logged": 4
+    },
+    "log": "/home/everett/AI2/state/wpmin_prose_k4_p0.8.log"
+  }
+]

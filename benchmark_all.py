@@ -109,7 +109,10 @@ def run_native_spec(paths: Paths, rt: Runtime):
         "-t", str(rt.threads),
         "--port", str(PORT),
         "-ngl", "999",
-        "-ot", f"{rt.moe_cpu_tensor_regex}=CPU",
+        # The draft model shares the card here, and this launch has no fallback
+        # like BigModelServer's, so leave room for it: at 20 there is ~700 MiB
+        # free on an empty card, less than the draft needs.
+        "--n-cpu-moe", str(max(rt.n_cpu_moe, 24)),
         "-fa", "on",
         "--spec-draft-model", paths.draft_model_gguf,
         "--spec-type", "draft-simple",
